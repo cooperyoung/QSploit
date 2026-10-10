@@ -1,0 +1,370 @@
+"""TLS framing and negotiated public metadata; no secret material leaves here.
+
+Registry: IANA TLS Parameters, RFC 8446 and RFC 10024 (2026-10-10).
+Unknown numeric suites/groups stay unknown; offers never establish a selection.
+"""
+from __future__ import annotations
+
+from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from .models import Handshake, ParsedTLS, QSploitError, Record, RSAKeyTransport, RSAProblem, TCPConnection
+
+MAX_HANDSHAKE_BYTES = 1024 * 1024
+MAX_RECORDS = 200_000
+MAX_HANDSHAKE_MESSAGES = 4096
+MAX_RSA_BITS = 16384
+SUITES = {
+    0x002f: ("TLS_RSA_WITH_AES_128_CBC_SHA", "rsa_transport", "RSA"),
+    0x0035: ("TLS_RSA_WITH_AES_256_CBC_SHA", "rsa_transport", "RSA"),
+    0x009c: ("TLS_RSA_WITH_AES_128_GCM_SHA256", "rsa_transport", "RSA"),
+    0x009d: ("TLS_RSA_WITH_AES_256_GCM_SHA384", "rsa_transport", "RSA"),
+    0x009e: ("TLS_DHE_RSA_WITH_AES_128_GCM_SHA256", "dhe", "RSA"),
+    0x009f: ("TLS_DHE_RSA_WITH_AES_256_GCM_SHA384", "dhe", "RSA"),
+    0xc02f: ("TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "ecdhe", "RSA"),
+    0xc030: ("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "ecdhe", "RSA"),
+    0xc02b: ("TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", "ecdhe", "ECDSA"),
+    0xc02c: ("TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", "ecdhe", "ECDSA"),
+    0x00a8: ("TLS_PSK_WITH_AES_128_GCM_SHA256", "psk", "PSK"),
+    0x00aa: ("TLS_DHE_PSK_WITH_AES_128_GCM_SHA256", "psk_dhe", "PSK"),
+    0x1301: ("TLS_AES_128_GCM_SHA256", "unknown", None),
+    0x1302: ("TLS_AES_256_GCM_SHA384", "unknown", None),
+    0x1303: ("TLS_CHACHA20_POLY1305_SHA256", "unknown", None),
+}
+GROUPS = {
+    23: ("secp256r1", "ecdhe"), 24: ("secp384r1", "ecdhe"),
+    25: ("secp521r1", "ecdhe"), 29: ("X25519", "ecdhe"), 30: ("X448", "ecdhe"),
+    **{i: (f"ffdhe{bits}", "dhe") for i, bits in zip(range(256, 261), (2048, 3072, 4096, 6144, 8192))},
+    512: ("ML-KEM-512", "pq"), 513: ("ML-KEM-768", "pq"), 514: ("ML-KEM-1024", "pq"),
+    4587: ("SecP256r1MLKEM768", "hybrid_pq"), 4588: ("X25519MLKEM768", "hybrid_pq"),
+    4589: ("SecP384r1MLKEM1024", "hybrid_pq"),
+    25497: ("X25519Kyber768Draft00 (obsolete)", "hybrid_pq"),
+    25498: ("SecP256r1Kyber768Draft00 (obsolete)", "hybrid_pq"),
+}
+HRR_RANDOM = bytes.fromhex("cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c")
+
+
+def cipher_suite_name(value: int | None) -> str | None:
+    return None if value is None else SUITES.get(value, (f"Unknown (0x{value:04x})",))[0]
+
+
+def group_name(value: int | None) -> str | None:
+    return None if value is None else GROUPS.get(value, (f"Unknown ({value})",))[0]
+
+
+class _Reader:
+    def __init__(self, data: bytes):
+        self.data, self.pos = data, 0
+
+    def take(self, size: int) -> bytes:
+        if size < 0 or self.pos + size > len(self.data):
+            raise QSploitError("INCOMPLETE_HANDSHAKE", "A TLS handshake field has an invalid or truncated length.")
+        value = self.data[self.pos:self.pos + size]
+        self.pos += size
+        return value
+
+    def number(self, width: int) -> int:
+        return int.from_bytes(self.take(width), "big")
+
+    def vector(self, width: int) -> bytes:
+        return self.take(self.number(width))
+
+    def end(self):
+        if self.pos != len(self.data):
+            raise QSploitError("INVALID_TLS", "Unexpected trailing bytes in a TLS structure.")
+
+
+def frame_records(stream: bytes, direction: str, *, allow_incomplete: bool = False) -> tuple[Record, ...]:
+    records, pos = [], 0
+    while pos < len(stream):
+        if len(records) >= MAX_RECORDS:
+            raise QSploitError("RESOURCE_LIMIT", "A TCP direction exceeds the TLS record limit.")
+        if len(stream) - pos < 5:
+            if allow_incomplete:
+                break
+            raise QSploitError("INCOMPLETE_HANDSHAKE", "The capture ends inside a TLS record header.")
+        kind, version, size = stream[pos], int.from_bytes(stream[pos + 1:pos + 3], "big"), int.from_bytes(stream[pos + 3:pos + 5], "big")
+        if kind not in (20, 21, 22, 23, 24) or not 0x0300 <= version <= 0x0304:
+            if allow_incomplete:
+                break
+            raise QSploitError("INVALID_TLS", "The TCP stream contains an invalid TLS record header.")
+        if size > 18432:
+            if allow_incomplete:
+                break
+            raise QSploitError("INVALID_TLS", "A TLS record exceeds the protocol ciphertext limit.")
+        if pos + 5 + size > len(stream):
+            if allow_incomplete:
+                break
+            raise QSploitError("INCOMPLETE_HANDSHAKE", "The capture ends inside a TLS record.")
+        records.append(Record(direction, pos, kind, version, stream[pos + 5:pos + 5 + size]))
+        pos += 5 + size
+    return tuple(records)
+
+
+def clear_handshakes(records: tuple[Record, ...], *, tls13: bool = False) -> tuple[Handshake, ...]:
+    pending = bytearray()
+    first_offset = 0
+    messages = []
+    for record in records:
+        if tls13 and record.content_type == 20 and record.fragment == b"\x01" and not pending:
+            continue
+        if record.content_type in (20, 23):
+            break
+        if record.content_type != 22:
+            if pending:
+                raise QSploitError("INCOMPLETE_HANDSHAKE", "A handshake message was interrupted by a different record type.")
+            continue
+        if len(record.fragment) > 16384:
+            raise QSploitError("INVALID_TLS", "A cleartext TLS record exceeds the protocol plaintext limit.")
+        if not pending:
+            first_offset = record.offset
+        pending.extend(record.fragment)
+        while len(pending) >= 4:
+            size = int.from_bytes(pending[1:4], "big")
+            if size > MAX_HANDSHAKE_BYTES:
+                raise QSploitError("RESOURCE_LIMIT", "A TLS handshake exceeds the 1 MiB limit.")
+            if len(pending) < size + 4:
+                break
+            wire = bytes(pending[:size + 4])
+            del pending[:size + 4]
+            if len(messages) >= MAX_HANDSHAKE_MESSAGES:
+                raise QSploitError("RESOURCE_LIMIT", "A TCP direction exceeds the handshake message limit.")
+            messages.append(Handshake(record.direction, first_offset, wire))
+            first_offset = record.offset
+    if pending:
+        raise QSploitError("INCOMPLETE_HANDSHAKE", "The capture has an incomplete cleartext handshake message.")
+    return tuple(messages)
+
+
+def _extensions(reader: _Reader) -> dict[int, bytes]:
+    if reader.pos == len(reader.data):
+        return {}
+    ext_reader = _Reader(reader.vector(2))
+    reader.end()
+    result = {}
+    while ext_reader.pos < len(ext_reader.data):
+        kind, value = ext_reader.number(2), ext_reader.vector(2)
+        if kind in result:
+            raise QSploitError("INVALID_TLS", "A hello contains duplicate TLS extensions.")
+        result[kind] = value
+    return result
+
+
+def _hello(wire: bytes, client: bool) -> dict:
+    r = _Reader(wire[4:])
+    version, random, session_id = r.number(2), r.take(32), r.vector(1)
+    if len(session_id) > 32:
+        raise QSploitError("INVALID_TLS", "A TLS session ID exceeds its protocol limit.")
+    if client:
+        suites, compression = r.vector(2), r.vector(1)
+        if not suites or len(suites) % 2 or not compression:
+            raise QSploitError("INVALID_TLS", "A ClientHello has invalid cipher/compression offers.")
+        selected = None
+    else:
+        selected, compression = r.number(2), r.number(1)
+    ext = _extensions(r)
+    if 23 in ext and ext[23] != b"":
+        raise QSploitError("INVALID_TLS", "The extended-master-secret extension must be empty.")
+    return dict(version=version, random=random, session_id=session_id,
+                suites=suites if client else None, compression=compression, suite=selected, ext=ext)
+
+
+def _sni(data: bytes) -> str | None:
+    r = _Reader(data)
+    entries = _Reader(r.vector(2))
+    r.end()
+    names = []
+    while entries.pos < len(entries.data):
+        kind, name = entries.number(1), entries.vector(2)
+        if kind == 0:
+            if names:
+                raise QSploitError("INVALID_TLS", "Duplicate host_name in SNI.")
+            try:
+                names.append(name.decode("ascii"))
+            except UnicodeDecodeError:
+                raise QSploitError("INVALID_TLS", "The SNI host_name is not ASCII.") from None
+    return names[0] if names else None
+
+
+def _alpn(data: bytes) -> str:
+    r = _Reader(data)
+    protocols = _Reader(r.vector(2))
+    r.end()
+    selected = protocols.vector(1)
+    protocols.end()
+    if not selected:
+        raise QSploitError("INVALID_TLS", "The selected ALPN value is empty.")
+    return selected.decode("ascii", "replace")
+
+
+def _leaf_key(wire: bytes):
+    r = _Reader(wire[4:])
+    certs = _Reader(r.vector(3))
+    r.end()
+    leaf = certs.vector(3)
+    while certs.pos < len(certs.data):
+        certs.vector(3)
+    try:
+        return x509.load_der_x509_certificate(leaf).public_key()
+    except (ValueError, UnsupportedAlgorithm):
+        raise QSploitError("INVALID_TLS", "The captured leaf certificate or its public key is unsupported or invalid.") from None
+
+
+def parse_tls(connection: TCPConnection) -> ParsedTLS:
+    state = dict(id=connection.id, protocol="tcp", client=None, server=None,
+                 tls_version=None, cipher_suite=None, compression=None, sni=None, alpn=None,
+                 authentication=None, kex="unknown", selected_group=None, psk_selected=False,
+                 resumed=False, ems=None, client_hello_version=None, client_random=None,
+                 server_random=None, rsa=None, records=(), clear_handshakes=())
+    blockers, warnings = list(connection.blockers), list(connection.warnings)
+    a, b = connection.a_to_b, connection.b_to_a
+    looks_tls = lambda s: len(s) >= 3 and s[0] in (20, 21, 22, 23, 24) and s[1] == 3 and s[2] <= 4
+    if not (looks_tls(a) or looks_tls(b)):
+        return ParsedTLS(**state, blockers=tuple(blockers), warnings=tuple(warnings))
+    state["protocol"] = "tls"
+    try:
+        def framed(stream, direction):
+            try:
+                return frame_records(stream, direction)
+            except QSploitError as exc:
+                if exc.code == "RESOURCE_LIMIT":
+                    raise
+                blockers.append(exc.code)
+                return frame_records(stream, direction, allow_incomplete=True)
+        ar, br = framed(a, "c2s"), framed(b, "s2c")
+        ah, bh = clear_handshakes(ar), clear_handshakes(br)
+        a_client = any(h.wire[0] == 1 for h in ah)
+        b_client = any(h.wire[0] == 1 for h in bh)
+        if a_client and b_client:
+            raise QSploitError("AMBIGUOUS_CONNECTION", "Both TCP directions contain a ClientHello.")
+        if b_client or (not a_client and any(h.wire[0] == 2 for h in ah)):
+            ar, br = framed(b, "c2s"), framed(a, "s2c")
+            ah, bh = clear_handshakes(ar), clear_handshakes(br)
+            state.update(client=connection.b, server=connection.a)
+        else:
+            state.update(client=connection.a, server=connection.b)
+        if any(h.wire[0] == 2 and h.wire[6:38] == HRR_RANDOM for h in bh):
+            ah, bh = clear_handshakes(ar, tls13=True), clear_handshakes(br, tls13=True)
+        state.update(records=ar + br, clear_handshakes=ah + bh)
+        client_hellos = [h for h in ah if h.wire[0] == 1]
+        server_hellos = [h for h in bh if h.wire[0] == 2]
+        if not client_hellos:
+            raise QSploitError("INCOMPLETE_HANDSHAKE", "The aligned ClientHello was not captured.")
+        if not ah or ah[0].wire[0] != 1:
+            raise QSploitError("INCOMPLETE_HANDSHAKE", "The stream does not begin with a complete ClientHello.")
+        ch = _hello(client_hellos[-1].wire, True)
+        state.update(client_hello_version=ch["version"], client_random=ch["random"])
+        if 0 in ch["ext"]:
+            state["sni"] = _sni(ch["ext"][0])
+        if not server_hellos:
+            raise QSploitError("INCOMPLETE_HANDSHAKE", "The final ServerHello was not captured.")
+        servers = [_hello(h.wire, False) for h in server_hellos]
+        final = [hello for hello in servers if hello["random"] != HRR_RANDOM]
+        if not final:
+            raise QSploitError("INCOMPLETE_HANDSHAKE", "Only HelloRetryRequest was captured; no exchange is selected yet.")
+        sh = final[-1]
+        version = sh["version"]
+        if 43 in sh["ext"]:
+            r = _Reader(sh["ext"][43]); version = r.number(2); r.end()
+        state.update(tls_version=version, cipher_suite=sh["suite"], compression=sh["compression"], server_random=sh["random"])
+        offered_suites = [int.from_bytes(ch["suites"][i:i + 2], "big") for i in range(0, len(ch["suites"]), 2)]
+        if sh["compression"] not in ch["compression"]:
+            raise QSploitError("INVALID_TLS", "The selected compression method was not offered by the client.")
+        if sh["suite"] not in offered_suites:
+            raise QSploitError("INVALID_TLS", "The selected cipher suite was not offered by the client.")
+        if version == 0x0304:
+            if len(final) != 1:
+                blockers.append("RENEGOTIATION_UNSUPPORTED")
+            state["ems"] = False
+            state["psk_selected"] = 41 in sh["ext"]
+            if 41 in sh["ext"] and len(sh["ext"][41]) != 2:
+                raise QSploitError("INVALID_TLS", "The selected PSK extension has an invalid length.")
+            if 51 in sh["ext"]:
+                r = _Reader(sh["ext"][51]); group = r.number(2); share = r.vector(2); r.end()
+                if not share:
+                    raise QSploitError("INVALID_TLS", "The selected key share is empty.")
+                state["selected_group"] = group
+                state["kex"] = GROUPS.get(group, ("unknown", "unknown"))[1]
+                if state["psk_selected"] and state["kex"] in ("ecdhe", "dhe"):
+                    state["kex"] = "psk_" + state["kex"]
+            elif state["psk_selected"]:
+                state["kex"] = "psk"
+            blockers.append("UNSUPPORTED_TLS_VERSION")
+        else:
+            if len(client_hellos) != 1 or len(server_hellos) != 1 or any(h.wire[0] == 0 for h in ah + bh):
+                blockers.append("RENEGOTIATION_UNSUPPORTED")
+            _, kex, auth = SUITES.get(sh["suite"], (None, "unknown", None))
+            state.update(kex=kex, authentication=auth, ems=23 in sh["ext"])
+            if state["ems"] and 23 not in ch["ext"]:
+                raise QSploitError("INVALID_TLS", "The server selected EMS without a client offer.")
+            if 16 in sh["ext"]:
+                state["alpn"] = _alpn(sh["ext"][16])
+            certs = [h for h in bh if h.wire[0] == 11]
+            ckes = [h for h in ah if h.wire[0] == 16]
+            has_server_ccs = any(r.content_type == 20 for r in br)
+            state["resumed"] = bool((ch["session_id"] and ch["session_id"] == sh["session_id"]) or (not certs and has_server_ccs))
+            if state["resumed"]:
+                blockers.append("RESUMPTION_UNSUPPORTED")
+            if any(h.wire[0] in (11, 15) for h in ah) or any(h.wire[0] == 13 for h in bh):
+                blockers.append("CLIENT_AUTH_UNSUPPORTED")
+            if kex in ("ecdhe", "psk_ecdhe"):
+                skes = [h for h in bh if h.wire[0] == 12]
+                if skes and len(skes[0].wire) >= 7 and skes[0].wire[4] == 3:
+                    state["selected_group"] = int.from_bytes(skes[0].wire[5:7], "big")
+            if kex == "rsa_transport" and certs and ckes:
+                if len(certs) != 1 or len(ckes) != 1:
+                    raise QSploitError("INVALID_TLS", "The RSA handshake contains duplicate key exchange messages.")
+                key = _leaf_key(certs[0].wire)
+                if not isinstance(key, rsa.RSAPublicKey):
+                    raise QSploitError("INVALID_RSA_KEY", "The selected RSA transport handshake has no RSA leaf public key.")
+                r = _Reader(ckes[0].wire[4:]); encrypted = r.vector(2); r.end()
+                pub = key.public_numbers()
+                if pub.n.bit_length() > MAX_RSA_BITS:
+                    raise QSploitError("RESOURCE_LIMIT", "The RSA public key exceeds the configured bit-size limit.")
+                state["rsa"] = RSAKeyTransport(pub.n, pub.e, encrypted)
+            if version != 0x0303:
+                blockers.append("UNSUPPORTED_TLS_VERSION")
+            if kex != "rsa_transport":
+                blockers.append("UNSUPPORTED_KEX")
+            if sh["suite"] != 0x009c:
+                blockers.append("UNSUPPORTED_CIPHER")
+            if sh["compression"] != 0:
+                blockers.append("UNSUPPORTED_COMPRESSION")
+            if not state["resumed"] and kex == "rsa_transport":
+                if not state["rsa"] or not any(h.wire[0] == 14 for h in bh):
+                    blockers.append("INCOMPLETE_HANDSHAKE")
+                client_kinds = [h.wire[0] for h in ah]
+                server_kinds = [h.wire[0] for h in bh]
+                if server_kinds and server_kinds[-1] == 4:
+                    server_kinds = server_kinds[:-1]
+                if client_kinds != [1, 16] or server_kinds not in ([2, 11, 14], [2, 11, 22, 14]):
+                    blockers.append("INCOMPLETE_HANDSHAKE")
+                for direction_records in (ar, br):
+                    ccs = [i for i, r in enumerate(direction_records) if r.content_type == 20]
+                    if not ccs or not any(r.content_type == 22 for r in direction_records[ccs[0] + 1:]):
+                        blockers.append("INCOMPLETE_HANDSHAKE")
+                    if len(ccs) > 1:
+                        blockers.append("RENEGOTIATION_UNSUPPORTED")
+                    if ccs and direction_records[ccs[0]].fragment != b"\x01":
+                        blockers.append("INVALID_TLS")
+                    if ccs and len(direction_records) > ccs[0] + 1 and direction_records[ccs[0] + 1].content_type != 22:
+                        blockers.append("INCOMPLETE_HANDSHAKE")
+    except QSploitError as exc:
+        blockers.append(exc.code)
+    return ParsedTLS(**state, blockers=tuple(dict.fromkeys(blockers)), warnings=tuple(dict.fromkeys(warnings)))
+
+
+def problem_for(session: ParsedTLS) -> RSAProblem:
+    if session.blockers:
+        code = session.blockers[0]
+        raise QSploitError(code, f"This capture cannot enter recovery: {code.replace('_', ' ').lower()}.")
+    if session.protocol != "tls" or session.tls_version != 0x0303:
+        raise QSploitError("UNSUPPORTED_TLS_VERSION", "Recovery currently supports full TLS 1.2 RSA sessions only.")
+    if session.kex != "rsa_transport" or session.rsa is None:
+        raise QSploitError("UNSUPPORTED_KEX", "The selected key exchange is not supported RSA key transport.")
+    if session.cipher_suite != 0x009c:
+        raise QSploitError("UNSUPPORTED_CIPHER", "Decryption currently supports TLS_RSA_WITH_AES_128_GCM_SHA256.")
+    if session.compression != 0 or session.ems is None or session.resumed:
+        raise QSploitError("INCOMPLETE_HANDSHAKE", "The full uncompressed TLS negotiation is required.")
+    return RSAProblem(session.rsa.n)

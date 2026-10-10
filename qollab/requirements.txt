@@ -1,0 +1,2 @@
+# Qiskit is provided by Qollab; pin the locally tested compatible release.
+qiskit==2.5.2

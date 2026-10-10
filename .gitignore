@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+.env
+test-results/
+playwright-report/
+.uv-cache/
+.browser-cache/
+*.egg-info/
+dist/
+*.pem
+*.key
+*.keylog

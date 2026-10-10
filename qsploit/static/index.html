@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>QSploit · Quantum recovery, local evidence</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script type="module" src="/static/app.js"></script>
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="QSploit home"
+        ><span class="brand-mark">Q</span>QSploit<span class="brand-caption"
+          >CAPTURE INSPECTOR</span
+        ></a
+      >
+      <div class="header-right">
+        <span class="local-dot"></span> Local processing
+        <span class="divider"></span><span>Qollab × IonQ</span>
+      </div>
+    </header>
+    <div id="mode-banner" class="mode-banner" role="status">
+      Reading execution configuration…
+    </div>
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">A PREVIEW OF FUTURE QUANTUM RECOVERY</p>
+          <h1>Encrypted traffic.<br /><span>Verifiable answers.</span></h1>
+          <p class="intro-copy">
+            Discover HTTPS sessions, recover a supported key, and inspect the
+            traffic.<br />Real captures. Real TLS authentication. Everything
+            stays local.
+          </p>
+        </div>
+        <div class="workflow" aria-label="Workflow">
+          <span><b>01</b> Capture</span><i>→</i><span><b>02</b> Recover</span
+          ><i>→</i><span><b>03</b> Inspect</span>
+        </div>
+      </section>
+      <div id="error" role="alert" hidden></div>
+      <section
+        id="dropzone"
+        class="dropzone"
+        aria-label="Upload packet capture"
+      >
+        <div class="upload-icon" aria-hidden="true">↥</div>
+        <div class="drop-copy">
+          <h2>Drop a PCAP here</h2>
+          <p>Classic PCAP · up to 32 MiB · no private key or key log needed</p>
+        </div>
+        <label class="button primary" for="file">Choose capture</label
+        ><input
+          id="file"
+          type="file"
+          accept=".pcap,.cap,application/octet-stream"
+          aria-label="Choose capture"
+        />
+        <div class="sample-row">
+          Start with captured test traffic
+          <button id="load-demo" class="text-button">
+            Open demo capture <span aria-hidden="true">↗</span></button
+          ><a href="/api/demo-capture" download>Download PCAP</a>
+        </div>
+      </section>
+      <section id="workspace" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">CAPTURE WORKSPACE</p>
+            <h2>Sessions <span id="session-count" class="count"></span></h2>
+          </div>
+          <div class="capture-controls">
+            <span id="capture-label"></span
+            ><label><input id="all-tcp" type="checkbox" /> All TCP</label
+            ><button id="replace" class="button">Replace capture</button
+            ><button id="clear" class="text-button muted">Clear</button>
+          </div>
+        </div>
+        <div id="capture-warnings" class="notice" hidden></div>
+        <div class="table-shell">
+          <table id="sessions">
+            <thead>
+              <tr>
+                <th>SESSION / ENDPOINTS</th>
+                <th>TLS</th>
+                <th>CIPHER SUITE</th>
+                <th>KEY EXCHANGE</th>
+                <th>RECOVERY</th>
+                <th>STATUS</th>
+              </tr>
+            </thead>
+            <tbody id="session-rows"></tbody>
+          </table>
+          <p id="no-sessions" class="empty" hidden>
+            No TLS sessions identified. Enable All TCP to inspect other
+            connections.
+          </p>
+        </div>
+        <section id="session-detail" class="card" hidden>
+          <div class="detail-top">
+            <div>
+              <p class="eyebrow">SELECTED SESSION</p>
+              <h2 id="session-title"></h2>
+              <p id="session-description" class="muted"></p>
+            </div>
+            <button id="recover" class="button primary">
+              Recover session <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          <div id="facts" class="facts"></div>
+          <div id="session-issues" class="notice" hidden></div>
+          <details id="public-details">
+            <summary>Public cryptographic parameters</summary>
+            <p>
+              Only this modulus crosses the recovery boundary. The capture and
+              TLS secrets stay local.
+            </p>
+            <pre id="public-key"></pre>
+          </details>
+          <div id="timing-note" class="timing-note"></div>
+          <div id="job-panel" hidden aria-live="polite">
+            <div class="job-title">
+              <span id="job-icon"></span><strong id="job-stage"></strong
+              ><span id="job-source"></span>
+            </div>
+            <div id="checks" class="checks"></div>
+            <div id="job-error" class="notice" hidden></div>
+          </div>
+        </section>
+        <section id="inspector" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">AUTHENTICATED APPLICATION DATA</p>
+              <h2>HTTP inspector</h2>
+            </div>
+            <span id="verification" class="badge good">TLS verified</span>
+          </div>
+          <div
+            id="exchanges"
+            class="exchange-list"
+            role="list"
+            aria-label="HTTP exchanges"
+          ></div>
+          <div id="http-empty" class="notice" hidden></div>
+          <div id="raw-downloads" class="raw-downloads"></div>
+          <div id="message-panes" class="message-panes">
+            <article class="message-pane">
+              <div class="pane-heading">
+                <h3>Request</h3>
+                <span id="request-size" class="muted"></span>
+              </div>
+              <nav class="tabs" aria-label="Request view">
+                <button data-side="request" data-tab="raw" class="active">
+                  Raw</button
+                ><button data-side="request" data-tab="headers">Headers</button
+                ><button data-side="request" data-tab="readable">
+                  Readable</button
+                ><button data-side="request" data-tab="parameters">
+                  Parameters
+                </button>
+              </nav>
+              <div id="request-content" class="message-content"></div>
+            </article>
+            <article class="message-pane">
+              <div class="pane-heading">
+                <h3>Response</h3>
+                <span id="response-size" class="muted"></span>
+              </div>
+              <nav class="tabs" aria-label="Response view">
+                <button data-side="response" data-tab="raw" class="active">
+                  Raw</button
+                ><button data-side="response" data-tab="headers">Headers</button
+                ><button data-side="response" data-tab="readable">
+                  Readable</button
+                ><button data-side="response" data-tab="render">Render</button>
+              </nav>
+              <div id="response-content" class="message-content"></div>
+            </article>
+          </div>
+          <div id="message-notes" class="notice" hidden></div>
+        </section>
+      </section>
+      <details id="quantum-drawer" class="quantum-drawer">
+        <summary>
+          <span>Quantum validation lab</span
+          ><span class="muted">Separate small-number circuit experiment</span>
+        </summary>
+        <div class="quantum-body">
+          <p>
+            Execute generic Shor order finding on a small modulus. This circuit
+            does <strong>not</strong> factor the captured RSA key. The demo
+            capture uses known test factors.
+          </p>
+          <div class="lab-controls">
+            <label
+              >Modulus
+              <select id="quantum-n">
+                <option value="15">15 · 18 qubits</option>
+                <option value="21">21 · 22 qubits</option>
+              </select></label
+            ><span id="quantum-capability" class="muted">Checking Aer…</span
+            ><button id="run-quantum" class="button" disabled>
+              Run on Aer
+            </button>
+          </div>
+          <pre id="quantum-output" aria-live="polite">
+No circuit executed in this session.</pre>
+        </div>
+      </details>
+      <footer>
+        <span>Designed for a quantum future. Honest about today.</span
+        ><span>Supports TLS 1.2 · static RSA · AES-128-GCM · HTTP/1.1</span>
+      </footer>
+    </main>
+  </body>
+</html>
