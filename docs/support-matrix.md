@@ -18,7 +18,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | ECDHE_RSA X25519 | AES-128/256-GCM | **Verified**: EMS and non-EMS; RFC 7748 private input |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-128-GCM / SHA-256 | **Verified**: full handshake, encrypted ALPN, ticket; X25519 genuine KeyUpdate |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-256-GCM / SHA-384 | **Verified**: independent 48-byte traffic-secret evidence |
-| TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
+| TLS 1.2 | DHE_RSA ffdhe2048 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
+| TLS 1.2 / 1.3 | ECDHE P-256, X25519 | ChaCha20-Poly1305 | Next protocol gates |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
 
@@ -145,3 +146,13 @@ code change. The API and isolated runtime verify both Finished messages and all
 20 records. Unknown-share, wrong typed/scalar result, malformed parameters,
 record corruption and epoch/KeyUpdate tests cover all four TLS 1.3 curve/cipher
 combinations. TLS 1.3 AES coverage is complete for P-256 and X25519.
+
+## Extension 5a: TLS 1.2 DHE / ChaCha20-Poly1305
+
+Genuine 0xccaa EMS/non-EMS captures reproduce independent master secrets and HTTP
+through the actual worker, both Finished checks and all 19 protected records.
+The 88-byte key block contains two 32-byte keys and two 12-byte IVs; nonce XOR
+uses the full 64-bit sequence, with no explicit nonce bytes in the record.
+Independent RFC 8439 primitive and cross-implementation TLS record vectors cover
+the changed layout. AES-GCM regression coverage remains intact. There is no
+standard static-RSA ChaCha suite; none is invented.

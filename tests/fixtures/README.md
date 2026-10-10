@@ -29,6 +29,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls13-p256-aes256-unknown.pcap` | Same AES-256 TLS 1.3 family with an unknown server public point |
 | `tls13-x25519-aes256.pcap` | Genuine TLS 1.3 X25519 with AES-256-GCM/SHA-384 (`0x1302`), 48-byte traffic-secret oracles and one NewSessionTicket |
 | `tls13-x25519-aes256-unknown.pcap` | Same AES-256 family with an unknown X25519 server share |
+| `tls12-dhe-chacha-ems.pcap`, `tls12-dhe-chacha-noems.pcap` | Genuine DHE_RSA/ffdhe2048 with ChaCha20-Poly1305/SHA-256 (`0xccaa`), both TLS 1.2 schedules |
+| `tls12-dhe-chacha-unknown.pcap` | Same ChaCha20 family with a fresh server share whose private exponent is not retained |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -117,3 +119,13 @@ The P-256 AES-256 fixture explicitly negotiates `TLS_AES_256_GCM_SHA384`, and th
 ```
 
 This targeted command preserves every earlier AES-128 capture and registry entry.
+
+## TLS 1.2 ChaCha20-Poly1305 endpoint evidence
+
+The DHE ChaCha20 fixtures force `TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256` (`0xccaa`) with the same exact ffdhe2048 parameters, RSA signature, passive exponent observer and independent endpoint master-secret/HTTP checks as the AES DHE cases. EMS and non-EMS are generated separately. Runtime decryption must apply the TLS ChaCha20 record nonce construction and authenticate the actual records; no ciphertext is converted from another cipher.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family dhe --chacha
+```
+
+The command stages two known captures and an unknown-share capture, then appends only the two observed test exponents to the DHE registry. Every earlier capture and registry entry is preserved.

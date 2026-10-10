@@ -17,10 +17,10 @@ MAX_HANDSHAKE_BYTES = 1024 * 1024
 MAX_RECORDS = 200_000
 MAX_HANDSHAKE_MESSAGES = 4096
 MAX_RSA_BITS = 16384
-SUPPORTED_RSA_GCM_SUITES = frozenset({0x009c, 0x009d})
-SUPPORTED_DHE_GCM_SUITES = frozenset({0x009e, 0x009f})
-SUPPORTED_ECDHE_GCM_SUITES = frozenset({0xc02f, 0xc030})
-SUPPORTED_TLS12_GCM_SUITES = SUPPORTED_RSA_GCM_SUITES | SUPPORTED_DHE_GCM_SUITES | SUPPORTED_ECDHE_GCM_SUITES
+SUPPORTED_RSA_SUITES = frozenset({0x009c, 0x009d})
+SUPPORTED_DHE_SUITES = frozenset({0x009e, 0x009f, 0xccaa})
+SUPPORTED_ECDHE_SUITES = frozenset({0xc02f, 0xc030})
+SUPPORTED_TLS12_SUITES = SUPPORTED_RSA_SUITES | SUPPORTED_DHE_SUITES | SUPPORTED_ECDHE_SUITES
 
 SUITES = {
     0x002f: ("TLS_RSA_WITH_AES_128_CBC_SHA", "rsa_transport", "RSA"),
@@ -29,6 +29,7 @@ SUITES = {
     0x009d: ("TLS_RSA_WITH_AES_256_GCM_SHA384", "rsa_transport", "RSA"),
     0x009e: ("TLS_DHE_RSA_WITH_AES_128_GCM_SHA256", "dhe", "RSA"),
     0x009f: ("TLS_DHE_RSA_WITH_AES_256_GCM_SHA384", "dhe", "RSA"),
+    0xccaa: ("TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256", "dhe", "RSA"),
     0xc02f: ("TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "ecdhe", "RSA"),
     0xc030: ("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "ecdhe", "RSA"),
     0xc02b: ("TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", "ecdhe", "ECDSA"),
@@ -468,7 +469,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 if pub.n.bit_length() > MAX_RSA_BITS:
                     raise QSploitError("RESOURCE_LIMIT", "The RSA public key exceeds the configured bit-size limit.")
                 state["rsa"] = RSAKeyTransport(pub.n, pub.e, encrypted)
-            if kex == "dhe" and sh["suite"] in SUPPORTED_DHE_GCM_SUITES:
+            if kex == "dhe" and sh["suite"] in SUPPORTED_DHE_SUITES:
                 skes = [h for h in bh if h.wire[0] == 12]
                 if len(certs) == 1 and len(skes) == 1 and len(ckes) == 1:
                     state["dhe"] = _dhe_key_exchange(skes[0].wire, ckes[0].wire, certs[0].wire,
@@ -476,7 +477,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                     state["selected_group"] = 256
                 elif not state["resumed"]:
                     blockers.append("INCOMPLETE_HANDSHAKE")
-            if kex == "ecdhe" and sh["suite"] in SUPPORTED_ECDHE_GCM_SUITES:
+            if kex == "ecdhe" and sh["suite"] in SUPPORTED_ECDHE_SUITES:
                 skes = [h for h in bh if h.wire[0] == 12]
                 if len(certs) == 1 and len(skes) == 1 and len(ckes) == 1:
                     state["ecdhe"] = _ecdhe_key_exchange(skes[0].wire, ckes[0].wire, certs[0].wire,
@@ -488,7 +489,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 blockers.append("UNSUPPORTED_TLS_VERSION")
             if kex not in ("rsa_transport", "dhe", "ecdhe"):
                 blockers.append("UNSUPPORTED_KEX")
-            if sh["suite"] not in SUPPORTED_TLS12_GCM_SUITES:
+            if sh["suite"] not in SUPPORTED_TLS12_SUITES:
                 blockers.append("UNSUPPORTED_CIPHER")
             if sh["compression"] != 0:
                 blockers.append("UNSUPPORTED_COMPRESSION")
@@ -537,17 +538,17 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
         return ECDLogProblem("x25519", normalize_x25519_point(session.ecdhe.server_public))
     if session.protocol != "tls" or session.tls_version != 0x0303:
         raise QSploitError("UNSUPPORTED_TLS_VERSION", "Recovery currently supports full TLS 1.2 RSA or supported ephemeral sessions only.")
-    if session.cipher_suite not in SUPPORTED_TLS12_GCM_SUITES:
-        raise QSploitError("UNSUPPORTED_CIPHER", "Decryption currently supports TLS 1.2 RSA/DHE/ECDHE with AES-128-GCM/SHA-256 or AES-256-GCM/SHA-384.")
+    if session.cipher_suite not in SUPPORTED_TLS12_SUITES:
+        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS 1.2 cipher suite is outside the implemented AES-GCM and ChaCha20-Poly1305 paths.")
     if session.compression != 0 or session.ems is None or session.resumed:
         raise QSploitError("INCOMPLETE_HANDSHAKE", "The full uncompressed TLS negotiation is required.")
-    if session.kex == "rsa_transport" and session.rsa is not None and session.cipher_suite in SUPPORTED_RSA_GCM_SUITES:
+    if session.kex == "rsa_transport" and session.rsa is not None and session.cipher_suite in SUPPORTED_RSA_SUITES:
         return RSAProblem(session.rsa.n)
-    if session.kex == "dhe" and session.dhe is not None and session.cipher_suite in SUPPORTED_DHE_GCM_SUITES:
+    if session.kex == "dhe" and session.dhe is not None and session.cipher_suite in SUPPORTED_DHE_SUITES:
         key = session.dhe
         validate_ffdhe2048(key.p, key.g, key.order, key.server_public, key.client_public)
         return FFDLogProblem(key.p, key.g, key.server_public, key.order)
-    if session.kex == "ecdhe" and session.ecdhe is not None and session.cipher_suite in SUPPORTED_ECDHE_GCM_SUITES:
+    if session.kex == "ecdhe" and session.ecdhe is not None and session.cipher_suite in SUPPORTED_ECDHE_SUITES:
         key = session.ecdhe
         if key.group == 23:
             validate_p256_point(key.server_public)

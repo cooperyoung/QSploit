@@ -1,4 +1,4 @@
-"""The supported TLS 1.2 RSA/DHE/ECDHE AES-GCM schedules and verification.
+"""Supported TLS 1.2 RSA/DHE/ECDHE AEAD schedules and verification.
 
 RFC 5246 sections 5, 6.3, 7.4.9; RFC 5288 section 3; RFC 7627 section 4.
 Application bytes are returned only after both Finished messages and every
@@ -12,10 +12,10 @@ import math
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
 from .keyexchange import ecdhe_shared_secret
-from .models import ApplicationStreams, FFDLogSecret, ParsedTLS, QSploitError, RecoveredSecret, RSAFactors
+from .models import ApplicationStreams, FFDLogSecret, ParsedTLS, QSploitError, Record, RecoveredSecret, RSAFactors
 from .tls import MAX_HANDSHAKE_BYTES, problem_for
 
 
@@ -24,14 +24,16 @@ CIPHER_PARAMETERS = {
     0x009c: ("sha256", 16), 0x009d: ("sha384", 32),
     0x009e: ("sha256", 16), 0x009f: ("sha384", 32),
     0xc02f: ("sha256", 16), 0xc030: ("sha384", 32),
+    0xccaa: ("sha256", 32),
 }
+CHACHA_SUITES = frozenset({0xccaa})
 
 
 def cipher_parameters(cipher_suite: int) -> tuple[str, int]:
     try:
         return CIPHER_PARAMETERS[cipher_suite]
     except KeyError:
-        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS cipher suite has no implemented AES-GCM schedule.") from None
+        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS cipher suite has no implemented AEAD schedule.") from None
 
 
 def prf(secret: bytes, label: bytes | str, seed: bytes, length: int, hash_name: str = "sha256") -> bytes:
@@ -133,11 +135,36 @@ def derive_master_secret(session: ParsedTLS, factors: RecoveredSecret) -> bytes:
 
 def derive_key_block(master: bytes, client_random: bytes, server_random: bytes, cipher_suite: int = 0x009c) -> bytes:
     hash_name, key_length = cipher_parameters(cipher_suite)
-    return prf(master, b"key expansion", server_random + client_random, 2 * key_length + 8, hash_name)
+    iv_length = 12 if cipher_suite in CHACHA_SUITES else 4
+    return prf(master, b"key expansion", server_random + client_random, 2 * key_length + 2 * iv_length, hash_name)
+
+
+def decrypt_record(record: Record, key: bytes, iv: bytes, sequence: int, cipher_suite: int = 0x009c) -> bytes:
+    """Authenticate one RFC 5288 GCM or RFC 7905 ChaCha record, without release."""
+    _, key_length = cipher_parameters(cipher_suite)
+    chacha = cipher_suite in CHACHA_SUITES
+    overhead, iv_length = (16, 12) if chacha else (24, 4)
+    if len(key) != key_length or len(iv) != iv_length:
+        raise QSploitError("INVALID_KEY_MATERIAL", "The TLS traffic key or IV has an invalid width for this cipher suite.")
+    if type(sequence) is not int or not 0 <= sequence < 2**64:
+        raise QSploitError("RESOURCE_LIMIT", "The TLS record sequence number is exhausted or invalid.")
+    if record.version != 0x0303 or not overhead <= len(record.fragment) <= 16384 + overhead:
+        raise QSploitError("INVALID_TLS", "The TLS 1.2 protected record has an invalid version or ciphertext length.")
+    length = len(record.fragment) - overhead
+    aad = sequence.to_bytes(8, "big") + bytes([record.content_type]) + record.version.to_bytes(2, "big") + length.to_bytes(2, "big")
+    if chacha:
+        nonce = bytes(a ^ b for a, b in zip(iv, sequence.to_bytes(12, "big")))
+        cipher, ciphertext = ChaCha20Poly1305(key), record.fragment
+    else:
+        nonce = iv + record.fragment[:8]
+        cipher, ciphertext = AESGCM(key), record.fragment[8:]
+    try:
+        return cipher.decrypt(nonce, ciphertext, aad)
+    except InvalidTag:
+        raise QSploitError("AEAD_AUTH_FAILED", "A captured TLS record failed AEAD authentication; no session plaintext was released.") from None
 
 
 def _decrypt_direction(session: ParsedTLS, direction: str, key: bytes, salt: bytes):
-    cipher = AESGCM(key)
     active, sequence, finished, close_notify = False, 0, None, False
     pending, application = bytearray(), bytearray()
     warnings = []
@@ -152,17 +179,7 @@ def _decrypt_direction(session: ParsedTLS, direction: str, key: bytes, salt: byt
             continue
         if record.content_type == 20:
             raise QSploitError("RENEGOTIATION_UNSUPPORTED", "A second ChangeCipherSpec epoch is unsupported.")
-        if record.version != 0x0303:
-            raise QSploitError("INVALID_TLS", "Protected TLS 1.2 records must use the negotiated record version.")
-        fragment = record.fragment
-        if not 24 <= len(fragment) <= 16384 + 24:
-            raise QSploitError("INVALID_TLS", "An AES-GCM record has an invalid plaintext/ciphertext length.")
-        length = len(fragment) - 24
-        aad = sequence.to_bytes(8, "big") + bytes([record.content_type]) + record.version.to_bytes(2, "big") + length.to_bytes(2, "big")
-        try:
-            plaintext = cipher.decrypt(salt + fragment[:8], fragment[8:], aad)
-        except InvalidTag:
-            raise QSploitError("AEAD_AUTH_FAILED", "A captured TLS record failed AES-GCM authentication; no session plaintext was released.") from None
+        plaintext = decrypt_record(record, key, salt, sequence, session.cipher_suite)
         sequence += 1
         if close_notify:
             raise QSploitError("INVALID_TLS", "A protected record follows this direction's close_notify.")
@@ -213,8 +230,9 @@ def decrypt_tls12(session: ParsedTLS, factors: RecoveredSecret) -> ApplicationSt
     hash_name, key_length = cipher_parameters(session.cipher_suite)
     block = derive_key_block(master, session.client_random, session.server_random, session.cipher_suite)
     salt_offset = 2 * key_length
-    client = _decrypt_direction(session, "c2s", block[:key_length], block[salt_offset:salt_offset + 4])
-    server = _decrypt_direction(session, "s2c", block[key_length:salt_offset], block[salt_offset + 4:salt_offset + 8])
+    iv_length = 12 if session.cipher_suite in CHACHA_SUITES else 4
+    client = _decrypt_direction(session, "c2s", block[:key_length], block[salt_offset:salt_offset + iv_length])
+    server = _decrypt_direction(session, "s2c", block[key_length:salt_offset], block[salt_offset + iv_length:salt_offset + 2 * iv_length])
     expected_client = prf(master, b"client finished", hashlib.new(hash_name, transcript).digest(), 12, hash_name)
     if not hmac.compare_digest(client[1][4:], expected_client):
         raise QSploitError("FINISHED_VERIFY_FAILED", "The client's Finished does not authenticate the captured handshake transcript.")

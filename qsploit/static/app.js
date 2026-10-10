@@ -299,10 +299,9 @@ function renderDetail() {
     state.busy || state.quantumBusy || !s.recovery_modes.length;
   $("#recover").textContent =
     s.decrypt_state === "verified" ? "Recover again →" : "Recover session →";
-  $("#public-details").hidden = !s.rsa;
-  if (s.rsa)
-    $("#public-key").textContent =
-      `Modulus (n)\n${s.rsa.n_hex}\n\nPublic exponent (e)\n${s.rsa.e_hex}`;
+  $("#public-details").hidden = !s.recovery_parameters;
+  if (s.recovery_parameters)
+    $("#public-key").textContent = JSON.stringify(s.recovery_parameters, null, 2);
   $("#timing-note").textContent =
     state.config.mode === "demo"
       ? `Demo recovery: ${state.config.demo_delay_seconds}s illustrative presentation delay · Known test recovery material, no quantum execution. TLS decryption and verification are real.`

@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .models import (ApplicationStreams, CaptureView, Capability, ExecutionOptions, ExchangeSummary, ExchangeView, Issue, JobView, ParsedTLS, Progress, PublicRSA, QSploitError, RSAProblem, SessionView, StartQuantumDemo, StartRecovery)
+from .models import (ApplicationStreams, CaptureView, Capability, ExecutionOptions, ExchangeSummary, ExchangeView, Issue, JobView, ParsedTLS, Progress, PublicRSA, QSploitError, RSAProblem, FFDLogProblem, ECDLogProblem, SessionView, StartQuantumDemo, StartRecovery)
 from .http1 import Exchange, parse_http, text_body
 from .jobs import run_recovery, verify_recovery
 from .preview import PREVIEW_CSP, preview_document
@@ -94,6 +94,17 @@ def endpoint(value):
     return f"[{value.ip}]:{value.port}" if ":" in value.ip else f"{value.ip}:{value.port}"
 
 
+def recovery_parameters(problem):
+    """The exact public mathematical input, formatted for the optional UI detail."""
+    if isinstance(problem, RSAProblem):
+        return {"n": format(problem.n, "x")}
+    if isinstance(problem, FFDLogProblem):
+        return {key: format(getattr(problem, key), "x") for key in ("p", "g", "y", "order")}
+    if isinstance(problem, ECDLogProblem):
+        return {"curve": problem.curve, "public_point": problem.public_point.hex()}
+    return None
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     state = State()
@@ -168,7 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         incomplete = any("GAP" in b or "INCOMPLETE" in b or "TRUNCATED" in b for b in s.blockers)
         ambiguous = any("CONFLICT" in b or "AMBIGUOUS" in b for b in s.blockers)
         observed = state.endpoints.get(s.id, (None, None))
-        return SessionView(id=s.id, client=endpoint(s.client), server=endpoint(s.server), protocol=s.protocol, sni=s.sni, tls_version={0x301:"1.0", 0x302:"1.1", 0x303:"1.2", 0x304:"1.3"}.get(s.tls_version), cipher_suite_id=s.cipher_suite, cipher_suite_name=cipher_suite_name(s.cipher_suite), key_exchange=s.kex, authentication=s.authentication, alpn=s.alpn, selected_group_id=s.selected_group, selected_group_name=group_name(s.selected_group), ems=s.ems, psk_selected=s.psk_selected, resumed=s.resumed, rsa=PublicRSA(n_hex=format(s.rsa.n,"x"),e_hex=format(s.rsa.e,"x"),bits=s.rsa.n.bit_length()) if s.rsa else None, vulnerability=vuln, implementation="supported" if supported else "unsupported", capture_state="ambiguous" if ambiguous else "incomplete" if incomplete else "unsupported" if s.blockers else "usable", recovery_modes=modes, decrypt_state=state.decrypt_states.get(s.id,"not_started"), blockers=[issue(b) for b in s.blockers], warnings=[issue(w) for w in s.warnings], endpoint_a=observed[0], endpoint_b=observed[1], recovery_problem=problem.kind if supported else None)
+        return SessionView(id=s.id, client=endpoint(s.client), server=endpoint(s.server), protocol=s.protocol, sni=s.sni, tls_version={0x301:"1.0", 0x302:"1.1", 0x303:"1.2", 0x304:"1.3"}.get(s.tls_version), cipher_suite_id=s.cipher_suite, cipher_suite_name=cipher_suite_name(s.cipher_suite), key_exchange=s.kex, authentication=s.authentication, alpn=s.alpn, selected_group_id=s.selected_group, selected_group_name=group_name(s.selected_group), ems=s.ems, psk_selected=s.psk_selected, resumed=s.resumed, rsa=PublicRSA(n_hex=format(s.rsa.n,"x"),e_hex=format(s.rsa.e,"x"),bits=s.rsa.n.bit_length()) if s.rsa else None, vulnerability=vuln, implementation="supported" if supported else "unsupported", capture_state="ambiguous" if ambiguous else "incomplete" if incomplete else "unsupported" if s.blockers else "usable", recovery_modes=modes, decrypt_state=state.decrypt_states.get(s.id,"not_started"), blockers=[issue(b) for b in s.blockers], warnings=[issue(w) for w in s.warnings], endpoint_a=observed[0], endpoint_b=observed[1], recovery_problem=problem.kind if supported else None, recovery_parameters=recovery_parameters(problem) if supported else None)
 
     def capture_view():
         if not state.capture_id:

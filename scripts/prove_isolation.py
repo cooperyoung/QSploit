@@ -23,7 +23,8 @@ def deny_oracles(event, args):
     if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
         path = os.fsdecode(args[0])
         if ("/tests/" in path or path.startswith("tests/")
-                or "/scripts/make_" in path or path.startswith("scripts/make_")
+                or (("/scripts/" in path or path.startswith("scripts/"))
+                    and Path(path).name.startswith("make_"))
                 or path.endswith((".expected.json", ".pem", ".keylog", ".key"))):
             raise PermissionError("Test oracles and endpoint key files are denied in the application process")
 
@@ -35,7 +36,7 @@ if os.environ.get("QSPLOIT_ISOLATION_PROOF") == "1":
 def child(name):
     from fastapi.testclient import TestClient
     from qsploit.app import Settings, create_app
-    for forbidden in (ROOT / "tests/fixtures/tls12-rsa-ems.expected.json", ROOT / "scripts/make_fixtures.py"):
+    for forbidden in (ROOT / "tests/fixtures/tls12-rsa-ems.expected.json", ROOT / "scripts/make_fixtures.py", ROOT / "scripts/__pycache__/make_fixtures.cpython-312.pyc"):
         try:
             forbidden.read_bytes()
         except PermissionError:
@@ -52,6 +53,8 @@ def child(name):
             time.sleep(.05)
             job = client.get("/api/jobs/" + job["id"]).json()
         assert job["state"] == "succeeded", job
+        assert job["client_finished_verified"] and job["server_finished_verified"]
+        assert job["authenticated_records"] > 0
         assert job["demo_factors"] is None
         hashes = {d:hashlib.sha256(client.get(f"/api/sessions/{sid}/application/{d}").content).hexdigest() for d in ("c2s","s2c")}
         print(json.dumps({"fixture":name,"hashes": hashes,"client_finished_verified":job["client_finished_verified"],"server_finished_verified":job["server_finished_verified"],"authenticated_records":job["authenticated_records"],"oracle_access":"denied","execution":job["execution"],"method":job["method"]}))

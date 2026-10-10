@@ -70,6 +70,7 @@ def test_pcaps_to_verified_http_via_actual_spawned_recovery(client,name):
     assert session['key_exchange'] == 'rsa_transport'
     assert session['ems'] is expected['ems']
     assert session['rsa']['bits'] == 2048
+    assert session['recovery_parameters'] == {'n': session['rsa']['n_hex']}
     assert session['recovery_modes'] == ['fixture']
     assert_no_plaintext(client,sid)
     job = recover(client,sid)

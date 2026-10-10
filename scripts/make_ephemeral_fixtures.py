@@ -40,10 +40,10 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
     observed_keys,errors = [],[]
     details = {}
     port = sock.getsockname()[1]
-    expected_cipher = ({'aes128gcm':0x009e,'aes256gcm':0x009f} if family=='dhe'
-                       else {'aes128gcm':0xc02f,'aes256gcm':0xc030})[cipher_name]
+    expected_cipher = ({'aes128gcm':0x009e,'aes256gcm':0x009f,'chacha20-poly1305':0xccaa} if family=='dhe'
+                       else {'aes128gcm':0xc02f,'aes256gcm':0xc030,'chacha20-poly1305':0xcca8})[cipher_name]
     openssl_cipher = ('DHE' if family=='dhe' else 'ECDHE')+'-RSA-'+{
-        'aes128gcm':'AES128-GCM-SHA256','aes256gcm':'AES256-GCM-SHA384'}[cipher_name]
+        'aes128gcm':'AES128-GCM-SHA256','aes256gcm':'AES256-GCM-SHA384','chacha20-poly1305':'CHACHA20-POLY1305'}[cipher_name]
     if tls13:
         expected_cipher = 0x1301 if cipher_name=='aes128gcm' else 0x1302
         openssl_cipher = 'TLS_AES_128_GCM_SHA256' if cipher_name=='aes128gcm' else 'TLS_AES_256_GCM_SHA384'
@@ -261,7 +261,7 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
             raise RuntimeError('Expected a canonical X25519 public encoding')
         public = {'curve':key['curve'],'public_point':key['public_point'].hex()}
     details.update(c2s_base64=b64(bytes(server_received)),s2c_base64=b64(bytes(client_received)),
-                   mode='tls13_'+family if tls13 else family+('_ems' if ems else '_noems'),prf_hash='sha256' if cipher_name=='aes128gcm' else 'sha384',
+                   mode='tls13_'+family if tls13 else family+('_ems' if ems else '_noems'),prf_hash='sha384' if cipher_name=='aes256gcm' else 'sha256',
                    public_problem=public,
                    endpoint_observations={'server_received_sha256':sha(bytes(server_received)),
                         'server_sent_sha256':sha(bytes(server_sent)),'client_received_sha256':sha(bytes(client_received)),
@@ -288,11 +288,14 @@ def main():
     parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 AES-128 baseline and unknown-share case')
     parser.add_argument('--key-update',action='store_true',help='Generate a separate TLS 1.3 capture with a genuine server KeyUpdate')
     parser.add_argument('--aes256',action='store_true',help='Generate the TLS 1.3 AES-256/SHA-384 family only')
+    parser.add_argument('--chacha',action='store_true',help='Generate the gated TLS 1.2 DHE ChaCha20-Poly1305 family only')
     args = parser.parse_args()
     if args.key_update and not args.tls13:
         parser.error('--key-update requires --tls13')
     if args.aes256 and (not args.tls13 or args.key_update):
         parser.error('--aes256 requires the baseline TLS 1.3 capture mode')
+    if args.chacha and (args.tls13 or args.aes256 or args.family!='dhe'):
+        parser.error('The current ChaCha20-Poly1305 gate is TLS 1.2 DHE only')
     if args.tls13 and args.family=='dhe':
         parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
     if tlslite.__version__ != '0.8.2':
@@ -304,6 +307,10 @@ def main():
              ('tls12-dhe-unknown','aes128gcm',True,False)]
     if args.family!='dhe':
         cases = [(name.replace('tls12-dhe-','tls12-ecdhe-'+args.family+'-'),cipher,ems,known) for name,cipher,ems,known in cases]
+    if args.chacha:
+        cases = [('tls12-dhe-chacha-ems','chacha20-poly1305',True,True),
+                 ('tls12-dhe-chacha-noems','chacha20-poly1305',False,True),
+                 ('tls12-dhe-chacha-unknown','chacha20-poly1305',True,False)]
     if args.tls13:
         bits = 256 if args.aes256 else 128
         cipher = f'aes{bits}gcm'

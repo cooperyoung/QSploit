@@ -242,6 +242,7 @@ class SessionView(WireModel):
     endpoint_a: str | None = None  # observed sockets when TLS roles are unknown
     endpoint_b: str | None = None
     recovery_problem: str | None = None
+    recovery_parameters: dict[str, str] | None = None
 
 class CaptureView(WireModel):
     id: str

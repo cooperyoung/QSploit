@@ -60,6 +60,9 @@ def test_mixed_capture_recovers_every_session_and_retains_exact_inspector_result
             seen.add(key)
             assert session['implementation'] == 'supported', session
             assert session['recovery_modes'] == ['fixture']
+            fields = set(session['recovery_parameters'])
+            assert fields == {'rsa_factor': {'n'}, 'ff_dlog': {'p', 'g', 'y', 'order'},
+                              'ec_dlog': {'curve', 'public_point'}}[session['recovery_problem']]
             assert session['decrypt_state'] == 'not_started'
             sid = session['id']
             response = client.post(f'/api/sessions/{sid}/recover', json={}, headers=HEADERS)
