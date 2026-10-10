@@ -7,6 +7,7 @@ instrumentation, not a general-purpose security sandbox.
 """
 from __future__ import annotations
 import base64
+import argparse
 import hashlib
 import json
 import os
@@ -29,7 +30,7 @@ if os.environ.get("QSPLOIT_ISOLATION_PROOF") == "1":
     sys.addaudithook(deny_oracles)
 
 
-def child():
+def child(name):
     from fastapi.testclient import TestClient
     from qsploit.app import Settings, create_app
     forbidden = ROOT / "tests/fixtures/tls12-rsa-ems.expected.json"
@@ -40,7 +41,7 @@ def child():
     else:
         raise AssertionError("Audit denial not active")
     with TestClient(create_app(Settings(backend="fixture", demo_delay_seconds=0)), base_url="http://127.0.0.1:8000") as client:
-        upload = client.post("/api/captures", headers={"X-QSploit":"1"}, content=(ROOT / "qsploit/demo/tls12-rsa-ems.pcap").read_bytes())
+        upload = client.post("/api/captures", headers={"X-QSploit":"1"}, content=(ROOT / "qsploit/demo" / f"{name}.pcap").read_bytes())
         upload.raise_for_status()
         sid = upload.json()["sessions"][0]["id"]
         job = client.post(f"/api/sessions/{sid}/recover", headers={"X-QSploit":"1"}, json={}).json()
@@ -51,14 +52,14 @@ def child():
         assert job["state"] == "succeeded", job
         assert job["demo_factors"] is None
         hashes = {d:hashlib.sha256(client.get(f"/api/sessions/{sid}/application/{d}").content).hexdigest() for d in ("c2s","s2c")}
-        print(json.dumps({"hashes": hashes,"client_finished_verified":job["client_finished_verified"],"server_finished_verified":job["server_finished_verified"],"authenticated_records":job["authenticated_records"],"oracle_access":"denied","execution":job["execution"],"method":job["method"]}))
+        print(json.dumps({"fixture":name,"hashes": hashes,"client_finished_verified":job["client_finished_verified"],"server_finished_verified":job["server_finished_verified"],"authenticated_records":job["authenticated_records"],"oracle_access":"denied","execution":job["execution"],"method":job["method"]}))
 
 
-def parent():
+def parent(name):
     env = {**os.environ, "QSPLOIT_ISOLATION_PROOF":"1"}
-    output = subprocess.check_output([sys.executable, str(Path(__file__).resolve()), "--child"], cwd=ROOT, env=env, text=True)
+    output = subprocess.check_output([sys.executable, str(Path(__file__).resolve()), "--child", "--fixture", name], cwd=ROOT, env=env, text=True)
     result = json.loads(output)
-    expected = json.loads((ROOT / "tests/fixtures/tls12-rsa-ems.expected.json").read_text())
+    expected = json.loads((ROOT / "tests/fixtures" / f"{name}.expected.json").read_text())
     # The independent generator uses explicit application-stream fields.
     for d, key in (("c2s","c2s_base64"),("s2c","s2c_base64")):
         assert result["hashes"][d] == hashlib.sha256(base64.b64decode(expected[key])).hexdigest(), "Endpoint oracle mismatch"
@@ -70,7 +71,19 @@ if __name__ == "__main__":
         from qsploit.__main__ import main
         sys.argv.remove("--serve")
         main()
-    elif "--child" in sys.argv:
-        child()
     else:
-        parent()
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument("--child", action="store_true")
+        parser.add_argument("--fixture", default="tls12-rsa-ems")
+        parser.add_argument("--all", action="store_true", help="Prove every packaged TLS fixture with an independent oracle")
+        args = parser.parse_args()
+        if not args.fixture or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.fixture):
+            parser.error("Invalid fixture name")
+        if args.child:
+            child(args.fixture)
+        elif args.all:
+            for path in sorted((ROOT / "qsploit/demo").glob("tls*.pcap")):
+                if (ROOT / "tests/fixtures" / f"{path.stem}.expected.json").exists():
+                    parent(path.stem)
+        else:
+            parent(args.fixture)

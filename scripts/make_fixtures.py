@@ -142,13 +142,14 @@ def listener() -> socket.socket:
     return sock
 
 
-def exchange(sock: socket.socket, key_path: Path, cert_path: Path, temp: Path, mode: str, openssl: str) -> dict:
+def exchange(sock: socket.socket, key_path: Path, cert_path: Path, temp: Path, mode: str, openssl: str, cipher: str | None = None) -> dict:
     requests, responses, body_oracles = http_payloads()
     server_received = bytearray()
     server_sent = bytearray()
     details: dict = {}
     errors: list[BaseException] = []
     port = sock.getsockname()[1]
+    cipher = cipher or ('ECDHE-RSA-AES128-GCM-SHA256' if mode == 'ecdhe' else 'AES128-GCM-SHA256')
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert_path, key_path)
     context.set_alpn_protocols(['http/1.1'])
@@ -159,7 +160,7 @@ def exchange(sock: socket.socket, key_path: Path, cert_path: Path, temp: Path, m
         context.set_ecdh_curve('X25519')
     else:
         context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_2
-        context.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256' if mode == 'ecdhe' else 'AES128-GCM-SHA256')
+        context.set_ciphers(cipher)
     server_log = temp / f'{port}-server.keys'
     client_log = temp / f'{port}-client.keys'
     context.keylog_filename = str(server_log)
@@ -202,7 +203,7 @@ def exchange(sock: socket.socket, key_path: Path, cert_path: Path, temp: Path, m
     if mode == 'tls13':
         command += ['-tls1_3', '-groups', 'X25519', '-ciphersuites', 'TLS_AES_128_GCM_SHA256']
     else:
-        command += ['-tls1_2', '-cipher', 'ECDHE-RSA-AES128-GCM-SHA256' if mode == 'ecdhe' else 'AES128-GCM-SHA256']
+        command += ['-tls1_2', '-cipher', cipher]
         if mode == 'noems':
             command += ['-no_ems']
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -299,15 +300,76 @@ def generate_ticket_fixture(args, generator):
         print('Generated tls12-rsa-ticket.pcap: real NewSessionTicket issuance, independent endpoint oracle',flush=True)
 
 
+def generate_aes256_fixtures(args, generator):
+    """Append an independently captured AES-256/SHA-384 family, preserving baseline."""
+    names = [('tls12-rsa-aes256','ems'),('tls12-rsa-aes256-noems','noems')]
+    names_set = {name+'.pcap' for name,_ in names}
+    manifest = json.loads((FIXTURES / 'manifest.json').read_text())
+    preserved = {record['file']:sha((FIXTURES/record['file']).read_bytes())
+                 for record in manifest['captures'] if record['file'] not in names_set}
+    factors = json.loads((DEMO / 'factors.json').read_text())
+    previous_moduli = set()
+    for name,_ in names:
+        expected_path = FIXTURES / (name+'.expected.json')
+        if expected_path.exists():
+            previous_moduli.add(json.loads(expected_path.read_text())['rsa_modulus_hex'])
+    with tempfile.TemporaryDirectory(prefix='qsploit-aes256-') as temporary:
+        temp = Path(temporary)
+        key_path, cert_path, key = identity(temp,'aes256')
+        numbers = key.private_numbers()
+        modulus = format(numbers.public_numbers.n,'x')
+        generated = []
+        for name,mode in names:
+            sock = listener()
+            path = temp / (name+'.pcap')
+            with PacketCapture(path,args.interface,[sock.getsockname()[1]]) as capture:
+                details = exchange(sock,key_path,cert_path,temp,mode,args.openssl,cipher='AES256-GCM-SHA384')
+            if details['cipher'] != 'AES256-GCM-SHA384' or details['version'] != 'TLSv1.2':
+                raise RuntimeError('AES-256 fixture negotiated an unexpected protocol')
+            record = {'capture':path.name,'sha256':sha(path.read_bytes()),'generator':generator,
+                      'rsa_modulus_hex':modulus,'cipher_suite_id':0x009d,'prf_hash':'sha384',
+                      **details,'tcpdump_log':capture.log}
+            (temp/(name+'.expected.json')).write_text(json.dumps(record,indent=2)+'\n')
+            generated.append({'file':path.name,'sha256':record['sha256'],'size':path.stat().st_size,
+                              'sessions':1,'mode':mode,'cipher_suite_id':0x009d,**packet_stats(path)})
+        # Keep all still-referenced test keys on regeneration, and replace only a
+        # prior key exclusively associated with these two targeted fixtures.
+        retained_moduli = set()
+        for expected_path in FIXTURES.glob('*.expected.json'):
+            if expected_path.name not in {name+'.expected.json' for name,_ in names}:
+                entry = json.loads(expected_path.read_text())
+                if 'rsa_modulus_hex' in entry:
+                    retained_moduli.add(entry['rsa_modulus_hex'])
+        for old in previous_moduli-retained_moduli:
+            factors.pop(old,None)
+        factors[modulus] = {'p':format(numbers.p,'x'),'q':format(numbers.q,'x')}
+        for name,_ in names:
+            shutil.copyfile(temp/(name+'.pcap'),FIXTURES/(name+'.pcap'))
+            shutil.copyfile(temp/(name+'.pcap'),DEMO/(name+'.pcap'))
+            shutil.copyfile(temp/(name+'.expected.json'),FIXTURES/(name+'.expected.json'))
+        (DEMO/'factors.json').write_text(json.dumps(factors,indent=2)+'\n')
+        manifest['captures'] = [record for record in manifest['captures'] if record['file'] not in names_set]+generated
+        (FIXTURES/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+    for filename,digest in preserved.items():
+        if sha((FIXTURES/filename).read_bytes()) != digest:
+            raise RuntimeError(f'Existing capture was unexpectedly modified: {filename}')
+    print('Generated AES256-GCM-SHA384 EMS + non-EMS captures; baseline PCAPs unchanged; temporary key/keylogs deleted.',flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--ticket-only', action='store_true', help='Add ticket issuance case using existing public demo factors')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--ticket-only', action='store_true', help='Add ticket issuance case using existing public demo factors')
+    mode.add_argument('--aes256-only', action='store_true', help='Add AES256-GCM-SHA384 EMS/non-EMS captures without changing baseline captures')
     parser.add_argument('--interface', default='lo0' if sys.platform == 'darwin' else 'lo')
     parser.add_argument('--openssl', default=shutil.which('openssl') or 'openssl')
     args = parser.parse_args()
     FIXTURES.mkdir(parents=True, exist_ok=True)
     DEMO.mkdir(parents=True, exist_ok=True)
     generator = {'script': 'scripts/make_fixtures.py', 'python': platform.python_version(), 'python_ssl': ssl.OPENSSL_VERSION, 'openssl': subprocess.check_output([args.openssl,'version'], text=True).strip(), 'tcpdump': subprocess.check_output([shutil.which('tcpdump') or 'tcpdump','--version'], stderr=subprocess.STDOUT, text=True).splitlines()[0], 'os': platform.platform(), 'interface': args.interface, 'generated_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(), 'packet_provenance': 'Unmodified OS packets captured by tcpdump from a real loopback TCP socket; TLS generated by OpenSSL s_client and Python ssl server.'}
+    if args.aes256_only:
+        generate_aes256_fixtures(args,generator)
+        return
     if args.ticket_only:
         generate_ticket_fixture(args,generator)
         return
@@ -350,6 +412,7 @@ def main():
     manifest['runtime_recovery_material'] = 'qsploit/demo/factors.json contains modulus-matched factors only; expected JSON files are tests only.'
     (FIXTURES / 'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     generate_ticket_fixture(args,generator)
+    generate_aes256_fixtures(args,generator)
     print('Finished: endpoint private keys and keylogs removed; master-secret oracles retained only in tests/fixtures/*.expected.json.', flush=True)
 
 

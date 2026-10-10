@@ -15,6 +15,8 @@ MAX_HANDSHAKE_BYTES = 1024 * 1024
 MAX_RECORDS = 200_000
 MAX_HANDSHAKE_MESSAGES = 4096
 MAX_RSA_BITS = 16384
+SUPPORTED_RSA_GCM_SUITES = frozenset({0x009c, 0x009d})
+
 SUITES = {
     0x002f: ("TLS_RSA_WITH_AES_128_CBC_SHA", "rsa_transport", "RSA"),
     0x0035: ("TLS_RSA_WITH_AES_256_CBC_SHA", "rsa_transport", "RSA"),
@@ -327,7 +329,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 blockers.append("UNSUPPORTED_TLS_VERSION")
             if kex != "rsa_transport":
                 blockers.append("UNSUPPORTED_KEX")
-            if sh["suite"] != 0x009c:
+            if sh["suite"] not in SUPPORTED_RSA_GCM_SUITES:
                 blockers.append("UNSUPPORTED_CIPHER")
             if sh["compression"] != 0:
                 blockers.append("UNSUPPORTED_COMPRESSION")
@@ -363,8 +365,8 @@ def problem_for(session: ParsedTLS) -> RSAProblem:
         raise QSploitError("UNSUPPORTED_TLS_VERSION", "Recovery currently supports full TLS 1.2 RSA sessions only.")
     if session.kex != "rsa_transport" or session.rsa is None:
         raise QSploitError("UNSUPPORTED_KEX", "The selected key exchange is not supported RSA key transport.")
-    if session.cipher_suite != 0x009c:
-        raise QSploitError("UNSUPPORTED_CIPHER", "Decryption currently supports TLS_RSA_WITH_AES_128_GCM_SHA256.")
+    if session.cipher_suite not in SUPPORTED_RSA_GCM_SUITES:
+        raise QSploitError("UNSUPPORTED_CIPHER", "Decryption currently supports TLS 1.2 RSA with AES-128-GCM/SHA-256 or AES-256-GCM/SHA-384.")
     if session.compression != 0 or session.ems is None or session.resumed:
         raise QSploitError("INCOMPLETE_HANDSHAKE", "The full uncompressed TLS negotiation is required.")
     return RSAProblem(session.rsa.n)

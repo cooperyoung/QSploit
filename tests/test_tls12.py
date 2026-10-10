@@ -15,10 +15,11 @@ import pytest
 from qsploit.models import Handshake, QSploitError, RSAFactors, Record
 from qsploit.pcap import read_connections
 from qsploit.tls import parse_tls, problem_for
-from qsploit.tls12 import _transcript, decrypt_tls12, derive_key_block, derive_master_secret, prf
+from qsploit.tls12 import _transcript, decrypt_tls12, derive_key_block, derive_master_secret, prf, recover_premaster
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FACTORS = Path(__file__).parents[1] / "qsploit/demo/factors.json"
+RSA_GCM_FIXTURES = ["tls12-rsa-ems", "tls12-rsa-aes256"]
 
 
 def fixture(name="tls12-rsa-ems"):
@@ -32,8 +33,10 @@ def fixture(name="tls12-rsa-ems"):
 
 def crypto_context(session, factors, direction):
     master = derive_master_secret(session, factors)
-    block = derive_key_block(master, session.client_random, session.server_random)
-    return (AESGCM(block[:16]), block[32:36]) if direction == "c2s" else (AESGCM(block[16:32]), block[36:40])
+    block = derive_key_block(master, session.client_random, session.server_random, session.cipher_suite)
+    key_length = {0x009c: 16, 0x009d: 32}[session.cipher_suite]
+    offset = 2 * key_length
+    return (AESGCM(block[:key_length]), block[offset:offset + 4]) if direction == "c2s" else (AESGCM(block[key_length:offset]), block[offset + 4:offset + 8])
 
 
 def unprotect(record, sequence, cipher, salt):
@@ -59,7 +62,7 @@ def protected_indices(session, direction=None):
     return output
 
 
-@pytest.mark.parametrize("name,ems", [("tls12-rsa-ems", True), ("tls12-rsa-noems", False), ("tls12-rsa-ticket", True)])
+@pytest.mark.parametrize("name,ems", [("tls12-rsa-ems", True), ("tls12-rsa-noems", False), ("tls12-rsa-ticket", True), ("tls12-rsa-aes256", True), ("tls12-rsa-aes256-noems", False)])
 def test_genuine_tls_end_to_end_matches_independent_oracles(name, ems):
     session, factors, expected = fixture(name)
     assert not session.blockers and session.ems is ems
@@ -71,11 +74,12 @@ def test_genuine_tls_end_to_end_matches_independent_oracles(name, ems):
     assert result.client_finished_verified and result.server_finished_verified
     assert result.client_close_notify and result.server_close_notify
     assert result.authenticated_records == 19
-    assert len(derive_key_block(bytes.fromhex(expected["master_secret_hex"]), session.client_random, session.server_random)) == 40
+    assert len(derive_key_block(bytes.fromhex(expected["master_secret_hex"]), session.client_random, session.server_random, session.cipher_suite)) == {0x009c: 40, 0x009d: 72}[session.cipher_suite]
 
 
-def test_wrong_and_equal_factors_rejected():
-    session, factors, _ = fixture()
+@pytest.mark.parametrize("name", RSA_GCM_FIXTURES)
+def test_wrong_and_equal_factors_rejected(name):
+    session, factors, _ = fixture(name)
     for invalid in (RSAFactors(factors.p + 2, factors.q), RSAFactors(1, session.rsa.n), RSAFactors(factors.p, factors.p)):
         with pytest.raises(QSploitError) as exc:
             decrypt_tls12(session, invalid)
@@ -113,16 +117,18 @@ def test_invalid_rsa_ciphertext_and_premaster(variant):
 
 
 @pytest.mark.parametrize("which", ["ems", "randoms"])
-def test_wrong_schedule_never_tries_another_schedule(which):
-    session, factors, _ = fixture()
+@pytest.mark.parametrize("name", RSA_GCM_FIXTURES)
+def test_wrong_schedule_never_tries_another_schedule(which, name):
+    session, factors, _ = fixture(name)
     changed = replace(session, ems=False) if which == "ems" else replace(session, client_random=session.server_random, server_random=session.client_random)
     with pytest.raises(QSploitError) as exc:
         decrypt_tls12(changed, factors)
     assert exc.value.code == "AEAD_AUTH_FAILED"
 
 
-def test_every_protected_record_is_authenticated_including_alerts():
-    session, factors, _ = fixture()
+@pytest.mark.parametrize("name", RSA_GCM_FIXTURES)
+def test_every_protected_record_is_authenticated_including_alerts(name):
+    session, factors, _ = fixture(name)
     for index in protected_indices(session):
         records = list(session.records)
         record = records[index]
@@ -133,8 +139,9 @@ def test_every_protected_record_is_authenticated_including_alerts():
 
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
-def test_valid_aead_but_wrong_finished_is_rejected(direction):
-    session, factors, _ = fixture()
+@pytest.mark.parametrize("name", RSA_GCM_FIXTURES)
+def test_valid_aead_but_wrong_finished_is_rejected(direction, name):
+    session, factors, _ = fixture(name)
     cipher, salt = crypto_context(session, factors, direction)
     index = protected_indices(session, direction)[0]
     records = list(session.records)
@@ -149,8 +156,9 @@ def test_valid_aead_but_wrong_finished_is_rejected(direction):
 
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
-def test_split_finished_and_nonce_independent_of_sequence(direction):
-    session, factors, expected = fixture()
+@pytest.mark.parametrize("name", RSA_GCM_FIXTURES)
+def test_split_finished_and_nonce_independent_of_sequence(direction, name):
+    session, factors, expected = fixture(name)
     cipher, salt = crypto_context(session, factors, direction)
     indices = protected_indices(session, direction)
     first = indices[0]
@@ -236,3 +244,46 @@ def test_prf_public_test_vector():
                             "6b301791e90d35c9c9a46b4e14baf9af0fa022f7077def17abfd3797c0564bab"
                             "4fbc91666e9def9b97fce34f796789baa48082d122ee42c5a72e5a5110fff701"
                             "87347b66")
+
+
+@pytest.mark.parametrize("name", ["tls12-rsa-aes256", "tls12-rsa-aes256-noems"])
+def test_aes256_negotiation_drives_sha384_schedule(name):
+    session, factors, expected = fixture(name)
+    assert session.cipher_suite == 0x009d and session.kex == "rsa_transport"
+    assert not session.blockers
+    master = bytes.fromhex(expected["master_secret_hex"])
+    premaster = recover_premaster(session, factors)
+    if session.ems:
+        transcript, _ = _transcript(session)
+        assert prf(premaster, b"extended master secret", hashlib.sha384(transcript).digest(), 48, "sha384") == master
+        # Either independently wrong transcript hash or PRF hash must disagree.
+        assert prf(premaster, b"extended master secret", hashlib.sha256(transcript).digest(), 48, "sha384") != master
+        assert prf(premaster, b"extended master secret", hashlib.sha384(transcript).digest(), 48, "sha256") != master
+    else:
+        assert prf(premaster, b"master secret", session.client_random + session.server_random, 48, "sha384") == master
+        assert prf(premaster, b"master secret", session.client_random + session.server_random, 48, "sha256") != master
+    # The wrong suite must never trigger a trial of the correct suite.
+    with pytest.raises(QSploitError) as exc:
+        decrypt_tls12(replace(session, cipher_suite=0x009c), factors)
+    assert exc.value.code == "AEAD_AUTH_FAILED"
+
+
+@pytest.mark.parametrize("direction", ["c2s", "s2c"])
+def test_aes256_valid_gcm_with_sha256_finished_is_rejected(direction):
+    session, factors, _ = fixture("tls12-rsa-aes256")
+    master = derive_master_secret(session, factors)
+    transcript, tickets = _transcript(session)
+    if direction == "s2c":
+        cipher, salt = crypto_context(session, factors, "c2s")
+        client_finished = unprotect(session.records[protected_indices(session, "c2s")[0]], 0, cipher, salt)
+        transcript += client_finished + b"".join(tickets)
+    label = b"client finished" if direction == "c2s" else b"server finished"
+    wrong = b"\x14\x00\x00\x0c" + prf(master, label, hashlib.sha256(transcript).digest(), 12, "sha256")
+    cipher, salt = crypto_context(session, factors, direction)
+    index = protected_indices(session, direction)[0]
+    records = list(session.records)
+    records[index] = protect(records[index], wrong, 0, cipher, salt)
+    assert unprotect(records[index], 0, cipher, salt) == wrong
+    with pytest.raises(QSploitError) as exc:
+        decrypt_tls12(replace(session, records=tuple(records)), factors)
+    assert exc.value.code == "FINISHED_VERIFY_FAILED"

@@ -44,10 +44,10 @@ def test_independent_endpoint_oracles_are_consistent(name):
 
 
 def test_runtime_assets_have_only_pcaps_and_factor_pairs():
-    expected_names = {'factors.json', 'qsploit-demo.pcap', 'tls12-rsa-ems.pcap', 'mixed-discovery.pcap'}
+    expected_names = {'factors.json', 'qsploit-demo.pcap', 'tls12-rsa-ems.pcap', 'mixed-discovery.pcap', 'tls12-rsa-aes256.pcap', 'tls12-rsa-aes256-noems.pcap'}
     assert {p.name for p in DEMO.iterdir() if p.is_file()} == expected_names
     factors = json.loads((DEMO / 'factors.json').read_text())
-    assert len(factors) == 1
+    assert len(factors) == 2
     for n, pair in factors.items():
         assert set(pair) == {'p', 'q'}
         assert int(n, 16).bit_length() == 2048

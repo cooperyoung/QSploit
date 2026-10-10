@@ -311,3 +311,16 @@ def test_mutated_and_truncated_real_inputs_fail_with_domain_errors_only():
             target[rng.randrange(len(target))] ^= 1 << rng.randrange(8)
         session = parse_tls(replace(original, a_to_b=bytes(a), b_to_a=bytes(b)))
         assert session.protocol == "tls" or session.protocol == "tcp"
+
+
+def test_aes256_rsa_capture_is_eligible_without_enabling_other_families():
+    from qsploit.tls import problem_for
+    path = FIXTURES / "tls12-rsa-aes256.pcap"
+    session = parse_tls(read_connections(path.read_bytes()).connections[0])
+    assert session.cipher_suite == 0x009d
+    assert session.kex == "rsa_transport" and session.authentication == "RSA"
+    assert not session.blockers
+    assert problem_for(session).n == session.rsa.n
+    with pytest.raises(QSploitError) as exc:
+        problem_for(replace(session, cipher_suite=0x002f))
+    assert exc.value.code == "UNSUPPORTED_CIPHER"

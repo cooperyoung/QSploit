@@ -72,7 +72,7 @@ MESSAGES = {
     "TCP_OVERLAP_CONFLICT": "Overlapping TCP packets contain conflicting bytes.",
     "INCOMPLETE_HANDSHAKE": "Required handshake messages are missing.",
     "UNSUPPORTED_TLS_VERSION": "Decryption currently supports TLS 1.2 only.",
-    "UNSUPPORTED_CIPHER": "Decryption currently supports TLS_RSA_WITH_AES_128_GCM_SHA256 only.",
+    "UNSUPPORTED_CIPHER": "This cipher suite has no implemented decryptor.",
     "UNSUPPORTED_KEX": "This negotiated key exchange needs a different recovery algorithm.",
     "RESUMPTION_UNSUPPORTED": "Resumed sessions require secrets from the original handshake.",
     "CLIENT_AUTH_UNSUPPORTED": "Client-certificate authentication is outside this version's scope.",
@@ -151,7 +151,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return state.sessions[sid]
 
     def session_view(s):
-        supported = not s.blockers and s.rsa is not None and s.tls_version == 0x303 and s.cipher_suite == 0x9c and s.kex == "rsa_transport"
+        try:
+            problem_for(s)
+            supported = True
+        except QSploitError:
+            supported = False
         modes = []
         if supported and settings.backend == "fixture" and has_known_factors(RSAProblem(s.rsa.n)):
             modes = ["fixture"]

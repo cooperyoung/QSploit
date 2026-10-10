@@ -55,6 +55,26 @@
       "mode": "tickets",
       "packet_count": 44,
       "linktype": 0
+    },
+    {
+      "file": "tls12-rsa-aes256.pcap",
+      "sha256": "2956a470588e569d26734c43a0a84d234cf4eba22ee8a64c5ac3871e7816cd5d",
+      "size": 57145,
+      "sessions": 1,
+      "mode": "ems",
+      "cipher_suite_id": 157,
+      "packet_count": 42,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-rsa-aes256-noems.pcap",
+      "sha256": "b1ee72eb5c1ab7aab88eb50fe39f88df43a5b023049c36360232963fc3613053",
+      "size": 57281,
+      "sessions": 1,
+      "mode": "noems",
+      "cipher_suite_id": 157,
+      "packet_count": 44,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

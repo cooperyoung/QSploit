@@ -1,4 +1,4 @@
-"""The supported TLS 1.2 RSA / AES-128-GCM schedule and verification.
+"""The supported TLS 1.2 RSA / AES-GCM schedules and verification.
 
 RFC 5246 sections 5, 6.3, 7.4.9; RFC 5288 section 3; RFC 7627 section 4.
 Application bytes are returned only after both Finished messages and every
@@ -18,7 +18,20 @@ from .models import ApplicationStreams, ParsedTLS, QSploitError, RSAFactors
 from .tls import MAX_HANDSHAKE_BYTES, problem_for
 
 
-def prf(secret: bytes, label: bytes | str, seed: bytes, length: int) -> bytes:
+# RFC 5288: SHA-384 changes the PRF/transcript hash, not GCM tag/nonce sizes.
+CIPHER_PARAMETERS = {0x009c: ("sha256", 16), 0x009d: ("sha384", 32)}
+
+
+def cipher_parameters(cipher_suite: int) -> tuple[str, int]:
+    try:
+        return CIPHER_PARAMETERS[cipher_suite]
+    except KeyError:
+        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS cipher suite has no implemented RSA/GCM schedule.") from None
+
+
+def prf(secret: bytes, label: bytes | str, seed: bytes, length: int, hash_name: str = "sha256") -> bytes:
+    if hash_name not in {"sha256", "sha384"}:
+        raise ValueError("unsupported TLS PRF hash")
     if isinstance(label, str):
         label = label.encode("ascii")
     if length < 0 or length > 1024 * 1024:
@@ -27,8 +40,8 @@ def prf(secret: bytes, label: bytes | str, seed: bytes, length: int) -> bytes:
     a = seed
     result = bytearray()
     while len(result) < length:
-        a = hmac.digest(secret, a, "sha256")
-        result.extend(hmac.digest(secret, a + seed, "sha256"))
+        a = hmac.digest(secret, a, hash_name)
+        result.extend(hmac.digest(secret, a + seed, hash_name))
     return bytes(result[:length])
 
 
@@ -90,13 +103,15 @@ def derive_master_secret(session: ParsedTLS, factors: RSAFactors) -> bytes:
     transcript, _ = _transcript(session)
     if session.client_random is None or session.server_random is None or len(session.client_random) != 32 or len(session.server_random) != 32:
         raise QSploitError("INCOMPLETE_HANDSHAKE", "Both complete TLS hello randoms are required.")
+    hash_name, _ = cipher_parameters(session.cipher_suite)
     if session.ems:
-        return prf(premaster, b"extended master secret", hashlib.sha256(transcript).digest(), 48)
-    return prf(premaster, b"master secret", session.client_random + session.server_random, 48)
+        return prf(premaster, b"extended master secret", hashlib.new(hash_name, transcript).digest(), 48, hash_name)
+    return prf(premaster, b"master secret", session.client_random + session.server_random, 48, hash_name)
 
 
-def derive_key_block(master: bytes, client_random: bytes, server_random: bytes) -> bytes:
-    return prf(master, b"key expansion", server_random + client_random, 40)
+def derive_key_block(master: bytes, client_random: bytes, server_random: bytes, cipher_suite: int = 0x009c) -> bytes:
+    hash_name, key_length = cipher_parameters(cipher_suite)
+    return prf(master, b"key expansion", server_random + client_random, 2 * key_length + 8, hash_name)
 
 
 def _decrypt_direction(session: ParsedTLS, direction: str, key: bytes, salt: bytes):
@@ -173,14 +188,16 @@ def decrypt_tls12(session: ParsedTLS, factors: RSAFactors) -> ApplicationStreams
     problem_for(session)
     transcript, tickets = _transcript(session)
     master = derive_master_secret(session, factors)
-    block = derive_key_block(master, session.client_random, session.server_random)
-    client = _decrypt_direction(session, "c2s", block[:16], block[32:36])
-    server = _decrypt_direction(session, "s2c", block[16:32], block[36:40])
-    expected_client = prf(master, b"client finished", hashlib.sha256(transcript).digest(), 12)
+    hash_name, key_length = cipher_parameters(session.cipher_suite)
+    block = derive_key_block(master, session.client_random, session.server_random, session.cipher_suite)
+    salt_offset = 2 * key_length
+    client = _decrypt_direction(session, "c2s", block[:key_length], block[salt_offset:salt_offset + 4])
+    server = _decrypt_direction(session, "s2c", block[key_length:salt_offset], block[salt_offset + 4:salt_offset + 8])
+    expected_client = prf(master, b"client finished", hashlib.new(hash_name, transcript).digest(), 12, hash_name)
     if not hmac.compare_digest(client[1][4:], expected_client):
         raise QSploitError("FINISHED_VERIFY_FAILED", "The client's Finished does not authenticate the captured handshake transcript.")
     transcript += client[1] + b"".join(tickets)
-    expected_server = prf(master, b"server finished", hashlib.sha256(transcript).digest(), 12)
+    expected_server = prf(master, b"server finished", hashlib.new(hash_name, transcript).digest(), 12, hash_name)
     if not hmac.compare_digest(server[1][4:], expected_server):
         raise QSploitError("FINISHED_VERIFY_FAILED", "The server's Finished does not authenticate the captured handshake transcript.")
     warnings = list(session.warnings) + client[4] + server[4]

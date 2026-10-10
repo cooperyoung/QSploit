@@ -74,9 +74,11 @@ The local FastAPI app is complemented by **`qollab/`**, a portable Qiskit projec
 
 An IonQ adapter is implemented and tested offline for QIS compilation, result normalization, status, failures and cancellation. No cloud simulator or physical QPU job was submitted: no credentials and target were configured. See the quantum evidence document for explicit enablement and bounds. There is no fallback from quantum failure to demo mode.
 
+See the [protocol support matrix](docs/support-matrix.md) for verified combinations and the ordered extension record.
+
 ## Scope and local handling
 
-Decryption supports full TLS 1.2 static RSA using `TLS_RSA_WITH_AES_128_GCM_SHA256`, RSA-2048 test fixtures, EMS and non-EMS, and HTTP/1.1. Discovery also distinguishes selected TLS 1.2 DHE/ECDHE and TLS 1.3 classical/PQ/PSK exchanges. Factoring an RSA authentication certificate cannot decrypt a captured ECDHE session.
+Decryption supports full TLS 1.2 static RSA using `TLS_RSA_WITH_AES_128_GCM_SHA256` and `TLS_RSA_WITH_AES_256_GCM_SHA384`, RSA-2048 test fixtures, EMS and non-EMS, and HTTP/1.1. Discovery also distinguishes selected TLS 1.2 DHE/ECDHE and TLS 1.3 classical/PQ/PSK exchanges. Factoring an RSA authentication certificate cannot decrypt a captured ECDHE session.
 
 Unsupported: PCAPNG, unrecognized link types, IP fragment reassembly, TLS resumption/client authentication/renegotiation, other TLS decryptors, HTTP/2 and live-site replay. Gaps, conflicting overlaps, wrong factors, bad Finished or bad record tags prevent plaintext publication. Checks authenticate the captured TLS protocol; they do not validate website identity through a CA.
 
