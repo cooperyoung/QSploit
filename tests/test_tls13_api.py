@@ -1,4 +1,4 @@
-"""Path 4: real TLS 1.3 P-256 captures through the local API and inspector."""
+"""Path 4: real TLS 1.3 captures through the local API and inspector."""
 from __future__ import annotations
 
 import base64
@@ -15,16 +15,16 @@ import pytest
 
 from qsploit.app import Settings, create_app
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, x25519
 from qsploit.groups import P256_ORDER
-from qsploit.models import ECDLogProblem, ECDLogSecret, Recovery, RSAFactors
+from qsploit.models import ECDLogProblem, ECDLogSecret, X25519Secret, Recovery, RSAFactors
 from qsploit.pcap import read_connections
 from qsploit.tls import parse_tls
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT/'tests/fixtures'
 DEMO = ROOT/'qsploit/demo'
-NAMES = ('tls13-p256-aes128',)
+NAMES = ('tls13-p256-aes128','tls13-x25519-aes128','tls13-x25519-aes128-keyupdate')
 HEADERS = {'X-QSploit':'1'}
 
 
@@ -76,25 +76,39 @@ def test_tls13_real_capture_registry_has_only_exact_public_problem_and_observed_
     assert expected['generator']['server']=='tlslite-ng 0.8.2'
     assert 'RNG and returned exponent unchanged' in expected['endpoint_observations']['recovery_oracle']
     public=expected['public_problem']
-    assert set(public)=={'curve','public_point'} and public['curve']=='secp256r1'
+    assert set(public)=={'curve','public_point'} and public['curve'] in ('secp256r1','x25519')
     point=bytes.fromhex(public['public_point'])
-    assert len(point)==65 and point[0]==4
     canonical=public['curve']+':'+point.hex()
     assert canonical==expected['recovery_registry_key']
     entry=secrets()[canonical]
-    assert set(entry)=={'x'}
-    x=int(entry['x'],16)
-    assert 1<=x<P256_ORDER
-    reconstructed=ec.derive_private_key(x,ec.SECP256R1()).public_key().public_bytes(
-        serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint)
+    if public['curve']=='secp256r1':
+        assert len(point)==65 and point[0]==4
+        assert set(entry)=={'x'}
+        x=int(entry['x'],16)
+        assert 1<=x<P256_ORDER
+        reconstructed=ec.derive_private_key(x,ec.SECP256R1()).public_key().public_bytes(
+            serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint)
+    else:
+        assert len(point)==32 and int.from_bytes(point,'little')<2**255-19
+        assert set(entry)=={'scalar'}
+        scalar=bytes.fromhex(entry['scalar'])
+        assert len(scalar)==32
+        reconstructed=x25519.X25519PrivateKey.from_private_bytes(scalar).public_key().public_bytes(
+            serialization.Encoding.Raw,serialization.PublicFormat.Raw)
     assert reconstructed==point
     assert expected['certificate_verify_signature_scheme']==0x0804
     assert expected['new_session_ticket_count']==1
     assert expected['tls13_secrets']['CLIENT_TRAFFIC_SECRET_0']==expected['client_application_traffic_secret_0_hex']
     assert expected['tls13_secrets']['SERVER_TRAFFIC_SECRET_0']==expected['server_application_traffic_secret_0_hex']
     assert len(bytes.fromhex(expected['client_handshake_traffic_secret_hex']))==32
-    assert 'x' not in expected['public_problem']
-    assert not any(key in expected for key in ('private_key','server_private','x','premaster_secret'))
+    if 'keyupdate' in name:
+        assert expected['server_key_update_count']==1
+        assert expected['server_application_traffic_secret_1_hex']!=expected['server_application_traffic_secret_0_hex']
+        updates=[secret for label,secret in expected['tls13_secrets'].items()
+                 if label.startswith('SERVER_TRAFFIC_SECRET_') and label!='SERVER_TRAFFIC_SECRET_0']
+        assert updates==[expected['server_application_traffic_secret_1_hex']]
+    assert not {'x','scalar'} & expected['public_problem'].keys()
+    assert not any(key in expected for key in ('private_key','server_private','x','scalar','premaster_secret'))
 
 
 @pytest.mark.parametrize('name',NAMES)
@@ -117,7 +131,8 @@ def test_tls13_upload_worker_recovery_exact_http_and_safe_preview(client,name,mo
     assert session['key_exchange']=='ecdhe' and session['authentication'] is None
     assert session['rsa'] is None  # The RSA certificate is authentication, not a recovery problem.
     assert session['tls_version']=='1.3' and session['cipher_suite_id']==expected['cipher_suite_id']
-    assert session['selected_group_id']==23 and session['selected_group_name']=='secp256r1'
+    group_id,group_name=(23,'secp256r1') if expected['public_problem']['curve']=='secp256r1' else (29,'X25519')
+    assert session['selected_group_id']==group_id and session['selected_group_name']==group_name
     assert not session['ems']
     assert not session['psk_selected'] and not session['resumed']
     assert session['recovery_problem']=='ec_dlog'
@@ -151,12 +166,13 @@ def test_tls13_upload_worker_recovery_exact_http_and_safe_preview(client,name,mo
     assert '<script' not in preview.text and 'untrusted.qsploit.test' not in preview.text
     assert 'sandbox;' in preview.headers['content-security-policy']
     assert "default-src 'none'" in preview.headers['content-security-policy']
-    for value in (secrets()[expected['recovery_registry_key']]['x'],expected['tls13_master_secret_hex'],*expected['tls13_secrets'].values()):
+    for value in (*secrets()[expected['recovery_registry_key']].values(),expected['tls13_master_secret_hex'],*expected['tls13_secrets'].values()):
         assert value not in json.dumps(public)
 
 
-def test_unknown_ephemeral_share_fails_without_using_same_group_or_certificate(client):
-    wire,expected=fixture('tls13-p256-unknown')
+@pytest.mark.parametrize('name',['tls13-p256-unknown','tls13-x25519-unknown'])
+def test_unknown_ephemeral_share_fails_without_using_same_group_or_certificate(client,name):
+    wire,expected=fixture(name)
     assert expected['recovery_registry_key'] not in secrets()
     session=upload(client,wire)
     assert session['implementation']=='supported' and not session['recovery_modes']
@@ -203,8 +219,9 @@ def test_tls13_corrupted_record_never_publishes_plaintext(client,name,mode):
 
 
 @pytest.mark.parametrize('mode,expected_code',[('missing','TCP_GAP')])
-def test_tls13_missing_bytes_block_recovery(client,mode,expected_code):
-    wire,_=fixture(NAMES[0])
+@pytest.mark.parametrize('name',NAMES)
+def test_tls13_missing_bytes_block_recovery(client,mode,expected_code,name):
+    wire,_=fixture(name)
     session=upload(client,alter(wire,mode))
     assert not session['recovery_modes']
     assert expected_code in [issue['code'] for issue in session['blockers']]
@@ -215,11 +232,18 @@ def test_tls13_missing_bytes_block_recovery(client,mode,expected_code):
 
 
 @pytest.mark.parametrize('wrong_type',[False,True])
-def test_tls13_wrong_exponent_or_rsa_factors_fail_at_worker_boundary(client,monkeypatch,wrong_type):
-    wire,expected=fixture(NAMES[0])
-    x=int(secrets()[expected['recovery_registry_key']]['x'],16)
+@pytest.mark.parametrize('name',NAMES)
+def test_tls13_wrong_exponent_or_rsa_factors_fail_at_worker_boundary(client,monkeypatch,wrong_type,name):
+    wire,expected=fixture(name)
+    entry=secrets()[expected['recovery_registry_key']]
+    if 'x' in entry:
+        wrong_secret=ECDLogSecret(int(entry['x'],16)+1)
+    else:
+        scalar=bytearray.fromhex(entry['scalar'])
+        scalar[1]^=1
+        wrong_secret=X25519Secret(bytes(scalar))
     async def invalid_result(problem,options,report):
-        return Recovery(RSAFactors(3,5) if wrong_type else ECDLogSecret(x+1),'fixture_lookup','none',None,())
+        return Recovery(RSAFactors(3,5) if wrong_type else wrong_secret,'fixture_lookup','none',None,())
     monkeypatch.setattr('qsploit.app.run_recovery',invalid_result)
     session=upload(client,wire)
     job=recover(client,session['id'])

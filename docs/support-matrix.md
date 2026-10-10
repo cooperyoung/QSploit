@@ -16,8 +16,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | DHE_RSA, ffdhe2048 | AES-128/256-GCM | **Verified**: EMS and non-EMS; finite-field exponent |
 | TLS 1.2 | ECDHE_RSA P-256 | AES-128/256-GCM | **Verified**: EMS and non-EMS; EC scalar |
 | TLS 1.2 | ECDHE_RSA X25519 | AES-128/256-GCM | **Verified**: EMS and non-EMS; RFC 7748 private input |
-| TLS 1.3 | ECDHE P-256 | AES-128-GCM / SHA-256 | **Verified**: full handshake, encrypted ALPN, session ticket |
-| TLS 1.3 | ECDHE X25519; AES-256 combinations | AES-GCM | Next protocol gates |
+| TLS 1.3 | ECDHE P-256, X25519 | AES-128-GCM / SHA-256 | **Verified**: full handshake, encrypted ALPN, ticket; X25519 genuine KeyUpdate |
+| TLS 1.3 | ECDHE P-256, X25519 | AES-256-GCM | Next protocol gate |
 | TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
@@ -116,3 +116,13 @@ The isolated application cannot read expected-output files, endpoint key logs,
 private keys or fixture-generator code; its recovered plaintext still matches
 the independent oracle. HRR, PSK, early data and client authentication remain
 explicit unsupported cases. Certificate authentication currently supports RSA-PSS.
+
+## Extension 4b: TLS 1.3 / X25519 / AES-128-GCM
+
+The genuine baseline and unknown-share captures exercise RFC 7748 through the
+same TLS 1.3 engine. A supplemental genuine endpoint capture sends KeyUpdate
+between HTTP responses. All 21 protected records authenticate across the new
+server epoch, both Finished messages verify, and the second HTTP response matches
+its exact independent oracle. OpenSSL's updated traffic secret agrees with the
+server endpoint's. The same capture passes the isolated runtime proof. This adds
+genuine KeyUpdate evidence beyond the constructed record tests described above.

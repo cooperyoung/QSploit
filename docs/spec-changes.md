@@ -1,11 +1,34 @@
 # Specification review changes
 
-- Prioritized the future-system end-to-end demonstration; Shor/Aer/IonQ evidence remains a separate milestone.
-- Replaced manual fixture selection with a normal recovery action under explicit server demo configuration, automatic exact-modulus matching, and persistent provenance.
-- Added a standalone problem-based timing function and `demo_delay_seconds=3`; no qubit-to-runtime fiction or fallback from real execution.
-- Preserved TCP reconstruction, strict RSA validation, EMS transcript boundary, per-direction record counters, AES-GCM tags, both Finished checks, and all-or-nothing plaintext publication.
-- Preserved one local FastAPI app, explicit dataclasses, a modulus-only spawned-worker boundary, h11, and inert previews.
-- Corrected stale IonQ probability/count assumptions: inspect the installed provider and preserve actual distribution provenance.
-- Will document verified platform requirements separately from assumptions. Quantum hardware requires algorithm/compiler/resource/adapter work, not merely an API-key switch.
+The original attachment was read in full; the Downloads original is preserved.
+The corrected working specification is [implementation-spec.md](implementation-spec.md).
+Its baseline is preserved in Git before the later requested protocol extensions.
 
-Original attachment was read in full. The corrected working specification is `docs/implementation-spec.md`; the Downloads original is preserved.
+- Made the primary acceptance gate genuine PCAP → automatic demo recovery → real
+  authenticated TLS → exact HTTP. Toy Shor and a live IonQ job are separate evidence.
+- Replaced manual factor/private-key inputs with exact public-problem lookup,
+  server-selected demo mode, a persistent label and explicit provenance.
+- Separated a configurable problem-based illustrative delay from recovery and TLS.
+  No qubit-count-to-runtime shortcut or silent fallback from real execution.
+- Kept one local FastAPI app and explicit data structures; removed proposed
+  scaffolding and duplicated interface sketches that no longer matched the code.
+- Extended the original modulus-only boundary with precise FF/EC discrete-log
+  problem/result types. Public client shares, captures and traffic secrets stay local.
+- Specified TCP gaps/conflicts/retransmission handling, negotiated classification,
+  strict RSA padding, EMS and transcript ordering, directional sequence counters,
+  signed ephemeral parameters, all AEAD tags and both Finished messages.
+- Separated TLS 1.3 HKDF, encrypted handshake, CertificateVerify, key epochs,
+  padding and KeyUpdate from TLS 1.2. Distinguished X25519 encoding/clamping from
+  P-256, and TLS 1.2 minimal-width DH secrets from TLS 1.3 fixed-width secrets.
+- Kept PSK, hybrid/PQ and incomplete captures honest; HTTP decoding failure no
+  longer implies TLS authentication failure. Captured HTML is inert and isolated.
+- Added per-protocol genuine captures, independent endpoint oracles, negative
+  tests, isolation proofs, mixed-capture validation and sequential Git checkpoints.
+- Verified Qollab's browser runtime and submission requirements separately from
+  assumptions; prepared a runnable quantum companion alongside the local app.
+- Preserved actual counts versus simulator probabilities and precise Aer/IonQ
+  execution provenance. Future hardware may require algorithm/compiler/resource/
+  adapter changes; switching an API key is not promised to suffice.
+
+The support matrix records completed implementations and remaining limitations;
+the specification describes acceptance requirements, not claims of passing tests.

@@ -34,7 +34,7 @@ from make_fixtures import (DEMO, FIXTURES, PacketCapture, b64, http_payloads,
                            identity, listener, packet_stats, sha)
 
 
-def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, family='dhe', tls13=False):
+def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, family='dhe', tls13=False, key_update=False):
     requests,responses,body_oracles = http_payloads()
     server_received,server_sent,client_received = bytearray(),bytearray(),bytearray()
     observed_keys,errors = [],[]
@@ -123,7 +123,7 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
                                certificate_verify_signature_scheme=0x0804,new_session_ticket_count=1)
             else:
                 details.update(master_secret_hex=bytes(conn.session.masterSecret).hex(),server_key_exchange_signature_scheme=0x0401)
-            for request,response in zip(requests,responses):
+            for index,(request,response) in enumerate(zip(requests,responses)):
                 incoming = bytearray()
                 while len(incoming)<len(request):
                     piece = conn.recv(len(request)-len(incoming))
@@ -137,6 +137,13 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
                     piece = response[pos:pos+4093]
                     conn.sendall(piece)
                     server_sent.extend(piece)
+                if key_update and index==0:
+                    # Normal endpoint API: update server application traffic
+                    # keys after the first response, before encrypting the next.
+                    for _ in conn.send_keyupdate_request(0):
+                        pass
+                    details['server_key_update_count'] = 1
+                    details['server_application_traffic_secret_1_hex'] = bytes(conn.session.sr_app_secret).hex()
             conn.close()
             details['server_shutdown_complete'] = True
         except BaseException as exc:
@@ -218,6 +225,10 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
                 raise RuntimeError('Independent OpenSSL/tlslite TLS 1.3 application-secret oracles disagree')
             details[side+'_handshake_traffic_secret_hex'] = oracles[side.upper()+'_HANDSHAKE_TRAFFIC_SECRET']
         details['tls13_secrets'] = oracles
+        if key_update:
+            updates = [value for label,value in oracles.items() if label.startswith('SERVER_TRAFFIC_SECRET_') and label!='SERVER_TRAFFIC_SECRET_0']
+            if updates != [details['server_application_traffic_secret_1_hex']]:
+                raise RuntimeError('Independent OpenSSL/tlslite updated application-secret oracles disagree')
     else:
         key_lines = [fields for fields in key_lines if fields[0]=='CLIENT_RANDOM']
         if len(key_lines) != 1:
@@ -271,10 +282,13 @@ def main():
     parser.add_argument('--interface',default='lo0' if sys.platform=='darwin' else 'lo')
     parser.add_argument('--openssl',default=shutil.which('openssl') or 'openssl')
     parser.add_argument('--family',choices=['dhe','p256','x25519'],default='dhe',help='Generate only this family, preserving other captures')
-    parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 P-256 AES-128 baseline and unknown-share case')
+    parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 AES-128 baseline and unknown-share case')
+    parser.add_argument('--key-update',action='store_true',help='Generate a separate TLS 1.3 capture with a genuine server KeyUpdate')
     args = parser.parse_args()
-    if args.tls13 and args.family!='p256':
-        parser.error('The current TLS 1.3 capture gate is P-256 only')
+    if args.key_update and not args.tls13:
+        parser.error('--key-update requires --tls13')
+    if args.tls13 and args.family=='dhe':
+        parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
     if tlslite.__version__ != '0.8.2':
         raise RuntimeError('The development observer is verified against tlslite-ng 0.8.2 only')
     cases = [('tls12-dhe-aes128-ems','aes128gcm',True,True),
@@ -285,7 +299,10 @@ def main():
     if args.family!='dhe':
         cases = [(name.replace('tls12-dhe-','tls12-ecdhe-'+args.family+'-'),cipher,ems,known) for name,cipher,ems,known in cases]
     if args.tls13:
-        cases = [('tls13-p256-aes128','aes128gcm',True,True),('tls13-p256-unknown','aes128gcm',True,False)]
+        cases = [(f'tls13-{args.family}-aes128','aes128gcm',True,True),
+                 (f'tls13-{args.family}-unknown','aes128gcm',True,False)]
+        if args.key_update:
+            cases = [(f'tls13-{args.family}-aes128-keyupdate','aes128gcm',True,True)]
     names = {name+'.pcap' for name,_,_,_ in cases}
     manifest = json.loads((FIXTURES/'manifest.json').read_text())
     preserved = {record['file']:sha((FIXTURES/record['file']).read_bytes())
@@ -316,7 +333,7 @@ def main():
             sock = listener()
             path = temp/(name+'.pcap')
             with PacketCapture(path,args.interface,[sock.getsockname()[1]]) as capture:
-                details,key = exchange(sock,chain,tls_private,temp,cipher,ems,args.openssl,args.family,args.tls13)
+                details,key = exchange(sock,chain,tls_private,temp,cipher,ems,args.openssl,args.family,args.tls13,args.key_update)
             lookup = registry_key(details['public_problem'])
             record = {'capture':path.name,'sha256':sha(path.read_bytes()),'generator':generator,
                       'recovery_registry_key':lookup,'recovery_secret_bundled':known,**details,'tcpdump_log':capture.log}

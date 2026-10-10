@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import pytest
 
 from qsploit.keyexchange import ecdhe_shared_secret
-from qsploit.models import ECDLogSecret, QSploitError, Record, TCPConnection
+from qsploit.models import ECDLogSecret, QSploitError, Record, TCPConnection, X25519Secret
 from qsploit.pcap import read_connections
 from qsploit.tls import HRR_RANDOM, _hello, parse_tls, problem_for
 from qsploit.tls13 import decrypt_tls13, decrypt_record, handshake_secrets, hkdf_expand_label, traffic_key_iv
@@ -16,13 +16,19 @@ from qsploit.tls13 import decrypt_tls13, decrypt_record, handshake_secrets, hkdf
 ROOT = Path(__file__).parents[1]
 
 
-def fixture():
-    path = ROOT / "tests/fixtures/tls13-p256-aes128"
+def fixture(name="tls13-p256-aes128"):
+    path = ROOT / "tests/fixtures" / name
     session = parse_tls(read_connections(path.with_suffix(".pcap").read_bytes()).connections[0])
     expected = json.loads(path.with_suffix(".expected.json").read_text())
     registry = json.loads((ROOT / "qsploit/demo/ec_dlog.json").read_text())
-    secret = ECDLogSecret(int(registry[expected["recovery_registry_key"]]["x"], 16))
+    entry = registry[expected["recovery_registry_key"]]
+    secret = ECDLogSecret(int(entry["x"], 16)) if "x" in entry else X25519Secret(bytes.fromhex(entry["scalar"]))
     return session, secret, expected
+
+
+@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128"])
+def tls_capture(request):
+    return fixture(request.param)
 
 
 def traffic(expected, direction, epoch):
@@ -54,10 +60,10 @@ def messages(payload):
     return result
 
 
-def test_genuine_tls13_schedule_and_http_match_independent_endpoints():
-    session, secret, expected = fixture()
+def test_genuine_tls13_schedule_and_http_match_independent_endpoints(tls_capture):
+    session, secret, expected = tls_capture
     assert not session.blockers and session.alpn is None and session.authentication is None
-    assert problem_for(session).curve == "secp256r1"
+    assert problem_for(session).curve == expected["public_problem"]["curve"]
     transcript = b"".join(h.wire for h in session.clear_handshakes)
     client, server, master = handshake_secrets(ecdhe_shared_secret(session.ecdhe, secret), transcript)
     assert client == traffic(expected, "c2s", "handshake")
@@ -72,8 +78,8 @@ def test_genuine_tls13_schedule_and_http_match_independent_endpoints():
     assert output.negotiated_alpn == "http/1.1" and output.authentication == "RSA"
 
 
-def test_every_tls13_protected_record_authenticates():
-    session, secret, _ = fixture()
+def test_every_tls13_protected_record_authenticates(tls_capture):
+    session, secret, _ = tls_capture
     for index, record in enumerate(session.records):
         if record.content_type != 23:
             continue
@@ -85,8 +91,8 @@ def test_every_tls13_protected_record_authenticates():
 
 
 @pytest.mark.parametrize("direction,handshake,code", [("s2c", 15, "SERVER_SIGNATURE_FAILED"), ("s2c", 20, "FINISHED_VERIFY_FAILED"), ("c2s", 20, "FINISHED_VERIFY_FAILED")])
-def test_valid_record_tag_does_not_replace_signature_or_finished_checks(direction, handshake, code):
-    session, secret, expected = fixture()
+def test_valid_record_tag_does_not_replace_signature_or_finished_checks(direction, handshake, code, tls_capture):
+    session, secret, expected = tls_capture
     records = list(session.records); index = indices(session, direction)[0]
     key = traffic(expected, direction, "handshake")
     kind, payload = decrypt_record(records[index], key, 0)
@@ -100,8 +106,8 @@ def test_valid_record_tag_does_not_replace_signature_or_finished_checks(directio
 
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
-def test_fragmented_handshake_and_padding_preserve_exact_transcript(direction):
-    session, secret, expected = fixture()
+def test_fragmented_handshake_and_padding_preserve_exact_transcript(direction, tls_capture):
+    session, secret, expected = tls_capture
     records = list(session.records); index = indices(session, direction)[0]
     key = traffic(expected, direction, "handshake")
     _, payload = decrypt_record(records[index], key, 0)
@@ -115,8 +121,8 @@ def test_fragmented_handshake_and_padding_preserve_exact_transcript(direction):
 
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
-def test_key_update_uses_old_keys_then_resets_new_epoch_sequence(direction):
-    session, secret, expected = fixture()
+def test_key_update_uses_old_keys_then_resets_new_epoch_sequence(direction, tls_capture):
+    session, secret, expected = tls_capture
     old = traffic(expected, direction, "application")
     new = hkdf_expand_label(old, "traffic upd", b"", 32)
     protected = indices(session, direction)
@@ -141,8 +147,8 @@ def test_key_update_uses_old_keys_then_resets_new_epoch_sequence(direction):
 @pytest.mark.parametrize("variant,code", [("bad_update", "INVALID_TLS"), ("update_after_bytes", "INVALID_TLS"),
     ("empty_ticket", "INCOMPLETE_HANDSHAKE"), ("client_auth", "CLIENT_AUTH_UNSUPPORTED"),
     ("early_app", "FINISHED_VERIFY_FAILED"), ("unknown_inner", "INVALID_TLS"), ("padding_limit", "INVALID_TLS")])
-def test_authenticated_protocol_failures_still_reject(variant, code):
-    session, secret, expected = fixture()
+def test_authenticated_protocol_failures_still_reject(variant, code, tls_capture):
+    session, secret, expected = tls_capture
     records = list(session.records)
     index = indices(session, "s2c")[1]
     key = traffic(expected, "s2c", "application")
@@ -170,8 +176,8 @@ def test_authenticated_protocol_failures_still_reject(variant, code):
     assert exc.value.code == code
 
 
-def test_missing_finished_late_ccs_and_wrong_scalar_rejected():
-    session, secret, _ = fixture()
+def test_missing_finished_late_ccs_and_wrong_scalar_rejected(tls_capture):
+    session, secret, _ = tls_capture
     index = indices(session, "c2s")[0]
     records = tuple(r for i, r in enumerate(session.records) if i != index)
     with pytest.raises(QSploitError):
@@ -180,13 +186,15 @@ def test_missing_finished_late_ccs_and_wrong_scalar_rejected():
         decrypt_tls13(replace(session, records=session.records + (Record("s2c", 0, 20, 0x0303, b"\x01"),)), secret)
     assert exc.value.code == "INVALID_TLS"
     with pytest.raises(QSploitError) as exc:
-        decrypt_tls13(session, ECDLogSecret(secret.x + 1))
+        wrong = ECDLogSecret(secret.x + 1) if isinstance(secret, ECDLogSecret) else X25519Secret(secret.scalar[:1] + bytes([secret.scalar[1] ^ 1]) + secret.scalar[2:])
+        decrypt_tls13(session, wrong)
     assert exc.value.code == "INVALID_DLOG_RESULT"
 
 
-@pytest.mark.parametrize("variant,code", [("psk", "PSK_UNSUPPORTED"), ("early_data", "EARLY_DATA_UNSUPPORTED"), ("hrr", "HRR_UNSUPPORTED")])
-def test_tls13_unsupported_handshake_families_have_explicit_blockers(variant, code):
-    session, _, _ = fixture()
+@pytest.mark.parametrize("variant,code", [("psk", "PSK_UNSUPPORTED"), ("early_data", "EARLY_DATA_UNSUPPORTED"),
+    ("hrr", "HRR_UNSUPPORTED"), ("invalid_public", "INVALID_EC_PUBLIC")])
+def test_tls13_unsupported_handshake_families_have_explicit_blockers(variant, code, tls_capture):
+    session, _, _ = tls_capture
     records = list(session.records)
     direction = "c2s" if variant == "early_data" else "s2c"
     index = next(i for i, r in enumerate(records) if r.direction == direction and r.content_type == 22)
@@ -197,9 +205,16 @@ def test_tls13_unsupported_handshake_families_have_explicit_blockers(variant, co
     else:
         client = direction == "c2s"
         hello = _hello(wire, client)
-        extension = (42).to_bytes(2, "big") + b"\x00\x00" if client else (41).to_bytes(2, "big") + b"\x00\x02\x00\x00"
+        old_extensions = dict(hello["ext"])
+        if variant == "invalid_public":
+            share = hello["ext"][51]
+            value = b"\x04" + bytes(64) if session.ecdhe.group == 23 else bytes(32)
+            hello["ext"][51] = share[:4] + value
+            extension = b""
+        else:
+            extension = (42).to_bytes(2, "big") + b"\x00\x00" if client else (41).to_bytes(2, "big") + b"\x00\x02\x00\x00"
         existing = b"".join(k.to_bytes(2, "big") + len(v).to_bytes(2, "big") + v for k, v in hello["ext"].items())
-        old_length = len(existing) + 2
+        old_length = sum(4 + len(value) for value in old_extensions.values()) + 2
         body = wire[4:-old_length] + (len(existing) + len(extension)).to_bytes(2, "big") + existing + extension
         records[index] = replace(records[index], fragment=wire[:1] + len(body).to_bytes(3, "big") + body)
     def stream(side):
@@ -211,9 +226,9 @@ def test_tls13_unsupported_handshake_families_have_explicit_blockers(variant, co
         problem_for(changed)
 
 
-def test_tls13_key_update_limit_is_enforced_before_release():
+def test_tls13_key_update_limit_is_enforced_before_release(tls_capture):
     from qsploit.tls13 import MAX_KEY_UPDATES
-    session, secret, expected = fixture()
+    session, secret, expected = tls_capture
     indices_client = indices(session, "c2s")
     start = indices_client[1]
     records = list(session.records)
@@ -226,3 +241,11 @@ def test_tls13_key_update_limit_is_enforced_before_release():
     with pytest.raises(QSploitError) as exc:
         decrypt_tls13(replace(session, records=tuple(records)), secret)
     assert exc.value.code == "RESOURCE_LIMIT"
+
+
+def test_tls13_wrong_recovery_result_type_is_rejected(tls_capture):
+    session, secret, _ = tls_capture
+    wrong = X25519Secret(bytes(32)) if isinstance(secret, ECDLogSecret) else ECDLogSecret(7)
+    with pytest.raises(QSploitError) as exc:
+        decrypt_tls13(session, wrong)
+    assert exc.value.code == "INVALID_RECOVERY_RESULT"

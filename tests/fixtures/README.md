@@ -22,6 +22,9 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls12-ecdhe-x25519-unknown.pcap` | Fresh X25519 server share whose private encoding is deliberately not retained |
 | `tls13-p256-aes128.pcap` | Genuine TLS 1.3 P-256, AES-128-GCM/SHA-256, RSA-PSS server CertificateVerify, one NewSessionTicket and two HTTP exchanges |
 | `tls13-p256-unknown.pcap` | Same TLS 1.3 family with a fresh server public point whose private scalar is not retained |
+| `tls13-x25519-aes128.pcap` | Genuine TLS 1.3 X25519, AES-128-GCM/SHA-256, RSA-PSS CertificateVerify, one NewSessionTicket and two HTTP exchanges |
+| `tls13-x25519-unknown.pcap` | Same family with a fresh server public share whose private encoding is not retained |
+| `tls13-x25519-aes128-keyupdate.pcap` | A genuine server KeyUpdate between HTTP responses; the second response uses the next application traffic secret |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -87,6 +90,17 @@ The initial TLS 1.3 fixtures force P-256 and `TLS_AES_128_GCM_SHA256` (`0x1301`)
 
 ```sh
 .venv/bin/python scripts/make_ephemeral_fixtures.py --family p256 --tls13
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family x25519 --tls13
 ```
 
 OpenSSL's test-only keylog supplies both handshake traffic secrets, both application traffic secrets and the exporter secret in `tls13_secrets`. The application traffic secrets are independently checked against tlslite's session values before any files are published. The server's TLS 1.3 master secret is separately recorded as `tls13_master_secret_hex`; it is not mislabeled as a TLS 1.2 `CLIENT_RANDOM` master-secret oracle. Both endpoints also independently record and compare exact application bytes. Temporary endpoint keylogs, certificate private keys and ticket keys are deleted. The runtime registry contains only the known server scalar; none of these traffic secrets or expected HTTP bytes enters the runtime package.
+
+The X25519 TLS 1.3 fixtures use the same schedule and endpoint checks, with the byte-preserving scalar observer described above. Each targeted command changes only its own TLS 1.3 family; prior TLS 1.2 captures and the other TLS 1.3 curve remain unchanged.
+
+The separate KeyUpdate fixture invokes the server endpoint's normal `send_keyupdate_request(0)` after the first response. Its second response therefore uses a fresh application traffic key and resets that epoch's sequence number. OpenSSL's updated `SERVER_TRAFFIC_SECRET_N` oracle matches tlslite's updated session secret. Runtime recovery receives the same initial public problem and must process the authenticated KeyUpdate to read the second response.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family x25519 --tls13 --key-update
+```
+
+This command creates only the supplemental capture and preserves both baseline TLS 1.3 captures.

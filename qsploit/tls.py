@@ -403,7 +403,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 blockers.append("EARLY_DATA_UNSUPPORTED")
             if sh["suite"] != 0x1301:
                 blockers.append("UNSUPPORTED_CIPHER")
-            if state["selected_group"] != 23:
+            if state["selected_group"] not in (23, 29):
                 blockers.append("UNSUPPORTED_GROUP")
             if not blockers:
                 if ch["version"] != 0x0303 or sh["version"] != 0x0303 or sh["compression"] != 0 or sh["session_id"] != ch["session_id"]:
@@ -429,8 +429,9 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 groups = groups_reader.vector(2); groups_reader.end()
                 if not groups or len(groups) % 2 or group not in [int.from_bytes(groups[i:i+2], "big") for i in range(0, len(groups), 2)] or group not in offered_shares:
                     raise QSploitError("INVALID_TLS", "The selected TLS 1.3 group has no matching offered key share.")
-                validate_p256_point(share)
-                validate_p256_point(offered_shares[group])
+                validate_point = validate_p256_point if group == 23 else validate_x25519_point
+                validate_point(share)
+                validate_point(offered_shares[group])
                 state["ecdhe"] = ECDHEKeyExchange(group, share, offered_shares[group])
                 for records in (ar, br):
                     if not any(record.content_type == 23 for record in records):
@@ -525,11 +526,15 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
             raise QSploitError("UNSUPPORTED_CIPHER", "TLS 1.3 currently supports AES-128-GCM/SHA-256 only.")
         if session.psk_selected:
             raise QSploitError("PSK_UNSUPPORTED", "Selected TLS 1.3 PSKs are not recoverable from the ephemeral share alone.")
-        if session.ecdhe is None or session.ecdhe.group != 23:
-            raise QSploitError("UNSUPPORTED_GROUP", "TLS 1.3 currently supports P-256 only.")
-        validate_p256_point(session.ecdhe.server_public)
-        validate_p256_point(session.ecdhe.client_public)
-        return ECDLogProblem("secp256r1", session.ecdhe.server_public)
+        if session.ecdhe is None or session.ecdhe.group not in (23, 29):
+            raise QSploitError("UNSUPPORTED_GROUP", "TLS 1.3 currently supports P-256 and X25519 only.")
+        if session.ecdhe.group == 23:
+            validate_p256_point(session.ecdhe.server_public)
+            validate_p256_point(session.ecdhe.client_public)
+            return ECDLogProblem("secp256r1", session.ecdhe.server_public)
+        validate_x25519_point(session.ecdhe.server_public)
+        validate_x25519_point(session.ecdhe.client_public)
+        return ECDLogProblem("x25519", normalize_x25519_point(session.ecdhe.server_public))
     if session.protocol != "tls" or session.tls_version != 0x0303:
         raise QSploitError("UNSUPPORTED_TLS_VERSION", "Recovery currently supports full TLS 1.2 RSA or supported ephemeral sessions only.")
     if session.cipher_suite not in SUPPORTED_TLS12_GCM_SUITES:

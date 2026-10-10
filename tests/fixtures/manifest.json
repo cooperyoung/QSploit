@@ -262,6 +262,39 @@
       "recovery_secret_bundled": false,
       "packet_count": 52,
       "linktype": 0
+    },
+    {
+      "file": "tls13-x25519-aes128.pcap",
+      "sha256": "bf89ecd84d1b1a4eef6a4a35ff649e463e195197b02b712be484762304f2eedd",
+      "size": 58088,
+      "sessions": 1,
+      "mode": "tls13_x25519",
+      "cipher_suite_id": 4865,
+      "recovery_secret_bundled": true,
+      "packet_count": 52,
+      "linktype": 0
+    },
+    {
+      "file": "tls13-x25519-unknown.pcap",
+      "sha256": "5b366e9645d9e1e26248a7203f781b433764a95e8dd44b20a42c9cd3310ae465",
+      "size": 58088,
+      "sessions": 1,
+      "mode": "tls13_x25519",
+      "cipher_suite_id": 4865,
+      "recovery_secret_bundled": false,
+      "packet_count": 52,
+      "linktype": 0
+    },
+    {
+      "file": "tls13-x25519-aes128-keyupdate.pcap",
+      "sha256": "ca89353f67104656f5e11b44411ac985e8b0708e489421a08351d295093f32ea",
+      "size": 58259,
+      "sessions": 1,
+      "mode": "tls13_x25519",
+      "cipher_suite_id": 4865,
+      "recovery_secret_bundled": true,
+      "packet_count": 54,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

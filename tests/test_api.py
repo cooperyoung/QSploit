@@ -237,8 +237,10 @@ def test_mixed_discovery_separates_classical_kex_and_non_tls(client):
     assert tls13['authentication'] is None
     assert not tls13['recovery_modes']
     result = client.post(f"/api/sessions/{tls13['id']}/recover",json={},headers=HEADERS)
-    assert result.status_code == 422
-    assert result.json()['error']['code'].startswith('UNSUPPORTED')
+    assert result.status_code == 202
+    job = wait_job(client, result.json()['id'])
+    assert job['state'] == 'failed' and job['error']['code'] == 'FIXTURE_NOT_FOUND'
+    assert_no_plaintext(client, tls13['id'])
 
 
 def test_configuration_timing_disabled_mode_and_request_validation(client):

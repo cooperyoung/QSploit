@@ -2,13 +2,13 @@
 
 **A working preview of future quantum-assisted HTTPS recovery.** Upload a real PCAP, discover its sessions, recover a supported test key, and inspect authenticated HTTP locally.
 
-In **demo mode**, only factor recovery is substituted: the engine matches the actual RSA modulus to bundled test factors after a configurable presentation delay. RSA premaster recovery, TLS 1.2 PRF/EMS, both Finished checks, AES-GCM authentication, and HTTP reconstruction execute for real. Unknown keys never produce invented success.
+In **demo mode**, only secret recovery is substituted: the engine matches the exact public problem to bundled test factors or an ephemeral test scalar after a configurable delay. Local shared-secret computation, version-specific TLS schedules, both Finished checks, record authentication and HTTP reconstruction execute for real. Unknown keys never produce invented success.
 
 This effort is supported by Qollab & IonQ.
 
 ## Run the demo
 
-The prepared workspace already has a Python 3.12 virtual environment. From this directory:
+The prepared workspace uses a Python 3.12 environment outside the cloud-synced Documents folder. The launcher selects it automatically. From this directory:
 
 ```sh
 ./run-demo.sh --port 8765
@@ -20,9 +20,9 @@ Open **http://127.0.0.1:8765**. Port 8000 is the default, but another existing l
 2. Select the RSA session and click **Recover session**. No secret or second input is needed.
 3. After the default **3-second illustrative delay**, inspect the two HTTP exchanges.
 4. Select **Parameters**, then **Render** for the profile response. Inspect the second exchange's decoded gzip JSON in **Readable**.
-5. Upload `qsploit/demo/mixed-discovery.pcap` to contrast static RSA, ECDHE_RSA, TLS 1.3, and ordinary TCP. Enable **All TCP** to see the latter.
+5. Click **Protocol tour** to load multiple genuine TLS sessions in one PCAP. Recover any session through the same inspector. `mixed-discovery.pcap` additionally illustrates unavailable keys and ordinary TCP.
 
-The persistent demo banner and job provenance state **known test factors / no quantum execution**. The delay is a presentation setting, not a hardware estimate:
+The persistent demo banner and job provenance state **known test recovery / no quantum execution**. The delay is a presentation setting, not a hardware estimate:
 
 ```sh
 ./run-demo.sh --port 8765 --demo-delay-seconds 0
@@ -45,7 +45,7 @@ For tests and separate quantum evidence:
 ```sh
 .venv/bin/uv sync --frozen --all-extras
 .venv/bin/python -m pytest -q
-.venv/bin/python scripts/prove_isolation.py
+.venv/bin/python scripts/prove_isolation.py --all
 ```
 
 `uv.lock` pins all resolved versions. `pip install -e .` also installs the ordinary runtime, while `pip install -e '.[dev,quantum,ionq]'` installs extras; those pip commands resolve the declared ranges rather than enforcing the uv lock.
@@ -54,7 +54,7 @@ For tests and separate quantum evidence:
 
 | Evidence | What actually happens |
 |---|---|
-| Real RSA-2048 TLS capture | Known test factors → real RSA premaster → real TLS schedules → verified records and HTTP |
+| Real captured TLS sessions | Known test factors or ephemeral scalar → real shared secret → real TLS schedules → verified records and HTTP |
 | Quantum validation lab | Generic reversible modular arithmetic → executed Aer order-finding circuit → measured phases → verified factors of 15 or 21 |
 
 The second result **does not** crack the captured RSA key. Open the **Quantum validation lab** drawer, or run:
@@ -64,7 +64,7 @@ The second result **does not** crack the captured RSA key. Open the **Quantum va
 .venv/bin/python -m qsploit.quantum --modulus 21
 ```
 
-The quantum component accepts `RSAProblem(n)` and returns `Recovery(factors, provenance)`. A spawned process receives only that public problem and execution options. Capture bytes, certificates, TLS ciphertext and secrets are not passed to it. Future fault-tolerant algorithms, compilation, resources, and provider adapters may change substantially; the capture/TLS/HTTP path is protected by this narrow contract.
+The quantum component accepts a typed RSA-factorization, finite-field discrete-log or elliptic-curve discrete-log problem and returns `Recovery(secret, provenance)`. Result types are algorithm-specific and mathematically verified. A spawned process receives only that public problem and execution options. The actual quantum solver currently implements small-number RSA order finding; DLP recovery uses labeled fixtures only. Capture bytes, certificates, TLS ciphertext and secrets are not passed to it. Future fault-tolerant algorithms, compilation, resources, and provider adapters may change substantially; the capture/TLS/HTTP path is protected by this narrow contract.
 
 ## Qollab and IonQ
 
@@ -78,9 +78,9 @@ See the [protocol support matrix](docs/support-matrix.md) for verified combinati
 
 ## Scope and local handling
 
-Decryption supports full TLS 1.2 static RSA using `TLS_RSA_WITH_AES_128_GCM_SHA256` and `TLS_RSA_WITH_AES_256_GCM_SHA384`, RSA-2048 test fixtures, EMS and non-EMS, and HTTP/1.1. Discovery also distinguishes selected TLS 1.2 DHE/ECDHE and TLS 1.3 classical/PQ/PSK exchanges. Factoring an RSA authentication certificate cannot decrypt a captured ECDHE session.
+The [support matrix](docs/support-matrix.md) is the authoritative list of verified protocol/cipher combinations. TLS 1.2 covers static RSA, DHE_RSA with ffdhe2048, and ECDHE_RSA with P-256/X25519. TLS 1.3 uses its own HKDF schedule and encrypted-handshake engine. Factoring an RSA authentication certificate cannot recover an ephemeral session key.
 
-Unsupported: PCAPNG, unrecognized link types, IP fragment reassembly, TLS resumption/client authentication/renegotiation, other TLS decryptors, HTTP/2 and live-site replay. Gaps, conflicting overlaps, wrong factors, bad Finished or bad record tags prevent plaintext publication. Checks authenticate the captured TLS protocol; they do not validate website identity through a CA.
+Full handshakes are required. PCAPNG, IP fragment reassembly, TLS resumption/unknown PSK, HelloRetryRequest, early data, client authentication, renegotiation and other unlisted groups/suites remain unsupported. PQ/hybrid exchanges are recognized; Shor alone is insufficient. HTTP/1.1 is decoded. HTTP/2 retains authenticated directional bytes with an explicit decoding limitation. Gaps, conflicting overlaps, invalid recovery material, bad signatures/Finished/tags prevent plaintext publication. Checks authenticate the captured TLS protocol; they do not validate website identity through a CA.
 
 Capture and recovered plaintext live in process memory; replace, clear or restart to release them. Python does not guarantee secure erasure. API mutations require the loopback Host, same Origin when present, and a custom header. Previews strip active markup and URLs, disable controls, and use a sandbox plus restrictive CSP even on direct navigation. They never replay requests or fetch linked resources.
 
@@ -88,10 +88,10 @@ Capture and recovered plaintext live in process memory; replace, clear or restar
 
 - [Validation record and remaining blockers](docs/validation.md) records actual checks, including the denied browser check. Browser acceptance is supplied as an opt-in test and has **not** been executed here.
 - [Corrected specification](docs/implementation-spec.md), [change summary](docs/spec-changes.md), and [implementation notes](docs/implementation-notes.md).
-- `qsploit/{pcap,tls,tls12,http1,preview}.py`: local classical processing.
+- `qsploit/{pcap,tls,tls12,tls13,keyexchange,groups,http1,preview}.py`: local classical processing.
 - `qsploit/quantum/`: recovery, arithmetic, circuits, provider adapters, timing.
 - `qsploit/{app,jobs}.py` and `qsploit/static/`: local API, isolated worker, plain HTML/CSS/JS interface.
-- `scripts/make_fixtures.py`: development-only real loopback endpoints and tcpdump. Runtime never invokes it. See [fixture provenance](tests/fixtures/README.md).
-- `scripts/prove_isolation.py`: deny test-oracle/key-file access in the application and recovery processes, then independently compare the recovered streams' hashes.
+- `scripts/make_fixtures.py` and `scripts/make_ephemeral_fixtures.py`: development-only real loopback endpoints and tcpdump. Runtime never invokes it. See [fixture provenance](tests/fixtures/README.md).
+- `scripts/prove_isolation.py`: deny test-oracle/key-file/fixture-generator access in the application and recovery processes, then independently compare the recovered streams' hashes.
 
 MIT licensed. Built with Codex assistance from the supplied design specification; protocol and algorithm sources are attributed in the specification and quantum evidence. Nothing has been published or submitted externally.
