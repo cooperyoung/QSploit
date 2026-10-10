@@ -27,6 +27,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls13-x25519-aes128-keyupdate.pcap` | A genuine server KeyUpdate between HTTP responses; the second response uses the next application traffic secret |
 | `tls13-p256-aes256.pcap` | Genuine TLS 1.3 P-256 with AES-256-GCM/SHA-384 (`0x1302`), 48-byte traffic-secret oracles and one NewSessionTicket |
 | `tls13-p256-aes256-unknown.pcap` | Same AES-256 TLS 1.3 family with an unknown server public point |
+| `tls13-x25519-aes256.pcap` | Genuine TLS 1.3 X25519 with AES-256-GCM/SHA-384 (`0x1302`), 48-byte traffic-secret oracles and one NewSessionTicket |
+| `tls13-x25519-aes256-unknown.pcap` | Same AES-256 family with an unknown X25519 server share |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -111,6 +113,7 @@ The P-256 AES-256 fixture explicitly negotiates `TLS_AES_256_GCM_SHA384`, and th
 
 ```sh
 .venv/bin/python scripts/make_ephemeral_fixtures.py --family p256 --tls13 --aes256
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family x25519 --tls13 --aes256
 ```
 
 This targeted command preserves every earlier AES-128 capture and registry entry.

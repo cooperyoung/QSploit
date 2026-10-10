@@ -17,8 +17,7 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | ECDHE_RSA P-256 | AES-128/256-GCM | **Verified**: EMS and non-EMS; EC scalar |
 | TLS 1.2 | ECDHE_RSA X25519 | AES-128/256-GCM | **Verified**: EMS and non-EMS; RFC 7748 private input |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-128-GCM / SHA-256 | **Verified**: full handshake, encrypted ALPN, ticket; X25519 genuine KeyUpdate |
-| TLS 1.3 | ECDHE P-256 | AES-256-GCM / SHA-384 | **Verified**: independent 48-byte traffic-secret evidence |
-| TLS 1.3 | ECDHE X25519 | AES-256-GCM | Next protocol gate |
+| TLS 1.3 | ECDHE P-256, X25519 | AES-256-GCM / SHA-384 | **Verified**: independent 48-byte traffic-secret evidence |
 | TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
@@ -137,3 +136,12 @@ records, both Finished messages and CertificateVerify. Independent static KATs
 (cross-checked with tlslite-ng and cryptography) cover the complete schedule and
 RSA-PSS-SHA256 over a SHA-384 transcript. These vectors are explicitly synthetic,
 not claimed as published RFC examples or genuine capture evidence.
+
+## Extension 4d: TLS 1.3 / X25519 / AES-256-GCM
+
+A separate genuine 0x1302 X25519 capture passes exact endpoint-secret and HTTP
+comparisons through the existing protocol implementation, with no production
+code change. The API and isolated runtime verify both Finished messages and all
+20 records. Unknown-share, wrong typed/scalar result, malformed parameters,
+record corruption and epoch/KeyUpdate tests cover all four TLS 1.3 curve/cipher
+combinations. TLS 1.3 AES coverage is complete for P-256 and X25519.

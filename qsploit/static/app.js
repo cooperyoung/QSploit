@@ -269,7 +269,7 @@ function renderDetail() {
           ? "Standard"
           : "Unknown",
     ],
-    ["Application", s.alpn || "Not negotiated"],
+    ["Application", s.alpn || (s.tls_version === "1.3" && s.decrypt_state !== "verified" ? "Encrypted until recovery" : "Not negotiated")],
     [
       "Quantum assessment",
       s.vulnerability === "shor_applicable"

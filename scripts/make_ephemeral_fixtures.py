@@ -287,12 +287,12 @@ def main():
     parser.add_argument('--family',choices=['dhe','p256','x25519'],default='dhe',help='Generate only this family, preserving other captures')
     parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 AES-128 baseline and unknown-share case')
     parser.add_argument('--key-update',action='store_true',help='Generate a separate TLS 1.3 capture with a genuine server KeyUpdate')
-    parser.add_argument('--aes256',action='store_true',help='Generate the gated TLS 1.3 P-256 AES-256/SHA-384 family only')
+    parser.add_argument('--aes256',action='store_true',help='Generate the TLS 1.3 AES-256/SHA-384 family only')
     args = parser.parse_args()
     if args.key_update and not args.tls13:
         parser.error('--key-update requires --tls13')
-    if args.aes256 and (not args.tls13 or args.family!='p256' or args.key_update):
-        parser.error('The current AES-256 TLS 1.3 gate is the P-256 baseline only')
+    if args.aes256 and (not args.tls13 or args.key_update):
+        parser.error('--aes256 requires the baseline TLS 1.3 capture mode')
     if args.tls13 and args.family=='dhe':
         parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
     if tlslite.__version__ != '0.8.2':
