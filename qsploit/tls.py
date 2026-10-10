@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from .models import ECDHEKeyExchange, ECDLogProblem, FFDHEKeyExchange, FFDLogProblem, Handshake, ParsedTLS, PublicProblem, QSploitError, Record, RSAKeyTransport, RSAProblem, TCPConnection
-from .groups import FFDHE2048_ORDER, normalize_x25519_point, validate_ffdhe2048, validate_p256_point, validate_x25519_point
+from .groups import FFDHE2048_G, FFDHE2048_ORDER, FFDHE2048_P, normalize_x25519_point, validate_ffdhe2048, validate_p256_point, validate_x25519_point
 
 MAX_HANDSHAKE_BYTES = 1024 * 1024
 MAX_RECORDS = 200_000
@@ -405,7 +405,9 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 blockers.append("EARLY_DATA_UNSUPPORTED")
             if sh["suite"] not in (0x1301, 0x1302, 0x1303):
                 blockers.append("UNSUPPORTED_CIPHER")
-            if state["selected_group"] not in (23, 29):
+            if state["selected_group"] == 256 and sh["suite"] != 0x1301:
+                blockers.append("UNSUPPORTED_CIPHER")
+            if state["selected_group"] not in (23, 29, 256):
                 blockers.append("UNSUPPORTED_GROUP")
             if not blockers:
                 if ch["version"] != 0x0303 or sh["version"] != 0x0303 or sh["compression"] != 0 or sh["session_id"] != ch["session_id"]:
@@ -431,10 +433,20 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 groups = groups_reader.vector(2); groups_reader.end()
                 if not groups or len(groups) % 2 or group not in [int.from_bytes(groups[i:i+2], "big") for i in range(0, len(groups), 2)] or group not in offered_shares:
                     raise QSploitError("INVALID_TLS", "The selected TLS 1.3 group has no matching offered key share.")
-                validate_point = validate_p256_point if group == 23 else validate_x25519_point
-                validate_point(share)
-                validate_point(offered_shares[group])
-                state["ecdhe"] = ECDHEKeyExchange(group, share, offered_shares[group])
+                if group == 256:
+                    # TLS 1.3 encodes named finite-field shares at modulus width,
+                    # including leading zeros (RFC 8446 section 4.2.8.1).
+                    if len(share) != 256 or len(offered_shares[group]) != 256:
+                        raise QSploitError("INVALID_DH_PUBLIC", "TLS 1.3 ffdhe2048 shares require exactly 256 bytes.")
+                    server_public = int.from_bytes(share, "big")
+                    client_public = int.from_bytes(offered_shares[group], "big")
+                    validate_ffdhe2048(FFDHE2048_P, FFDHE2048_G, FFDHE2048_ORDER, server_public, client_public)
+                    state["dhe"] = FFDHEKeyExchange(FFDHE2048_P, FFDHE2048_G, server_public, client_public, FFDHE2048_ORDER)
+                else:
+                    validate_point = validate_p256_point if group == 23 else validate_x25519_point
+                    validate_point(share)
+                    validate_point(offered_shares[group])
+                    state["ecdhe"] = ECDHEKeyExchange(group, share, offered_shares[group])
                 for records in (ar, br):
                     if not any(record.content_type == 23 for record in records):
                         blockers.append("INCOMPLETE_HANDSHAKE")
@@ -528,8 +540,14 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
             raise QSploitError("UNSUPPORTED_CIPHER", "TLS 1.3 currently supports AES-GCM and ChaCha20-Poly1305 only.")
         if session.psk_selected:
             raise QSploitError("PSK_UNSUPPORTED", "Selected TLS 1.3 PSKs are not recoverable from the ephemeral share alone.")
+        if session.kex == "dhe" and session.dhe is not None:
+            if session.cipher_suite != 0x1301:
+                raise QSploitError("UNSUPPORTED_CIPHER", "TLS 1.3 ffdhe2048 currently supports AES-128-GCM only.")
+            key = session.dhe
+            validate_ffdhe2048(key.p, key.g, key.order, key.server_public, key.client_public)
+            return FFDLogProblem(key.p, key.g, key.server_public, key.order)
         if session.ecdhe is None or session.ecdhe.group not in (23, 29):
-            raise QSploitError("UNSUPPORTED_GROUP", "TLS 1.3 currently supports P-256 and X25519 only.")
+            raise QSploitError("UNSUPPORTED_GROUP", "TLS 1.3 currently supports P-256, X25519, and ffdhe2048 only.")
         if session.ecdhe.group == 23:
             validate_p256_point(session.ecdhe.server_public)
             validate_p256_point(session.ecdhe.client_public)

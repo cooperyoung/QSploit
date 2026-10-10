@@ -39,6 +39,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls13-p256-chacha-unknown.pcap` | Same TLS 1.3 ChaCha20 family with an unknown server point |
 | `tls13-x25519-chacha.pcap` | Genuine TLS 1.3 X25519 with ChaCha20-Poly1305/SHA-256 (`0x1303`), independent traffic-secret evidence and one NewSessionTicket |
 | `tls13-x25519-chacha-unknown.pcap` | Same TLS 1.3 ChaCha20 family with an unknown X25519 server share |
+| `tls13-dhe-aes128.pcap` | Genuine TLS 1.3 ffdhe2048 with AES-128-GCM/SHA-256, independent traffic-secret evidence and one NewSessionTicket |
+| `tls13-dhe-unknown.pcap` | Same finite-field TLS 1.3 family with an unknown server share |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -154,3 +156,13 @@ The P-256 TLS 1.3 ChaCha20 fixtures negotiate `TLS_CHACHA20_POLY1305_SHA256` (`0
 ```
 
 Both curves use the same TLS 1.3 SHA-256 schedule and ChaCha20 AEAD record rules. Their distinct observed public problems select only the matching test recovery secret, and each command preserves all previously captured families.
+
+## TLS 1.3 finite-field endpoint evidence
+
+The FFDHE2048 TLS 1.3 fixtures force named group 256, disable unrelated elliptic-curve groups and negotiate `TLS_AES_128_GCM_SHA256` (`0x1301`). The original FFDH random exponent sampler remains unchanged. OpenSSL and tlslite independently agree on the initial application traffic secrets and the exact HTTP bytes. The runtime DHE registry receives only the one known test exponent; the unknown-share exponent is discarded.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family dhe --tls13
+```
+
+TLS 1.3 finite-field public shares and the shared secret use the group’s fixed 256-byte encoding. Successful authentication against independent endpoint oracles tests that schedule and encoding together. Temporary certificate private keys, ticket keys and keylogs are deleted, while all earlier captures remain unchanged.

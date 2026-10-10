@@ -1,9 +1,23 @@
-"""Local ECDHE shared-secret computation independent of TLS key schedules."""
+"""Local ephemeral shared-secret computation independent of TLS schedules."""
 import hmac
 from cryptography.hazmat.primitives.asymmetric import ec, x25519
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from .groups import P256_ORDER, normalize_x25519_point, validate_p256_point, validate_x25519_point
-from .models import ECDHEKeyExchange, ECDLogSecret, QSploitError, RecoveredSecret, X25519Secret
+from .groups import P256_ORDER, normalize_x25519_point, validate_ffdhe2048, validate_p256_point, validate_x25519_point
+from .models import ECDHEKeyExchange, ECDLogSecret, FFDHEKeyExchange, FFDLogSecret, QSploitError, RecoveredSecret, X25519Secret
+
+
+def ffdhe_shared_secret(key: FFDHEKeyExchange, secret: RecoveredSecret, *, padded: bool = False) -> bytes:
+    validate_ffdhe2048(key.p, key.g, key.order, key.server_public, key.client_public)
+    if not isinstance(secret, FFDLogSecret):
+        raise QSploitError("INVALID_RECOVERY_RESULT", "DHE recovery requires a verified discrete logarithm result.")
+    x = secret.x
+    if type(x) is not int or not 1 <= x < key.order or pow(key.g, x, key.p) != key.server_public:
+        raise QSploitError("INVALID_DLOG_RESULT", "The recovered exponent does not reproduce the captured server public share.")
+    shared = pow(key.client_public, x, key.p)
+    # RFC 8446 section 7.4.1 preserves modulus-width leading zeros; RFC 5246
+    # section 8.1.2 strips them. The caller explicitly chooses its protocol.
+    width = (key.p.bit_length() + 7) // 8 if padded else (shared.bit_length() + 7) // 8
+    return shared.to_bytes(width, "big")
 
 
 def ecdhe_shared_secret(key: ECDHEKeyExchange, secret: RecoveredSecret) -> bytes:

@@ -7,8 +7,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 import pytest
 
-from qsploit.keyexchange import ecdhe_shared_secret
-from qsploit.models import ECDLogSecret, QSploitError, Record, TCPConnection, X25519Secret
+from qsploit.keyexchange import ecdhe_shared_secret, ffdhe_shared_secret
+from qsploit.models import ECDLogSecret, FFDLogSecret, QSploitError, Record, TCPConnection, X25519Secret
 from qsploit.pcap import read_connections
 from qsploit.tls import HRR_RANDOM, _hello, parse_tls, problem_for
 from qsploit.tls13 import decrypt_tls13, decrypt_record, handshake_secrets, hkdf_expand_label, traffic_key_iv
@@ -20,13 +20,13 @@ def fixture(name="tls13-p256-aes128"):
     path = ROOT / "tests/fixtures" / name
     session = parse_tls(read_connections(path.with_suffix(".pcap").read_bytes()).connections[0])
     expected = json.loads(path.with_suffix(".expected.json").read_text())
-    registry = json.loads((ROOT / "qsploit/demo/ec_dlog.json").read_text())
+    registry = json.loads((ROOT / "qsploit/demo" / ("dlog.json" if session.dhe else "ec_dlog.json")).read_text())
     entry = registry[expected["recovery_registry_key"]]
-    secret = ECDLogSecret(int(entry["x"], 16)) if "x" in entry else X25519Secret(bytes.fromhex(entry["scalar"]))
+    secret = FFDLogSecret(int(entry["x"], 16)) if session.dhe else ECDLogSecret(int(entry["x"], 16)) if "x" in entry else X25519Secret(bytes.fromhex(entry["scalar"]))
     return session, secret, expected
 
 
-@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128", "tls13-p256-aes256", "tls13-x25519-aes256", "tls13-p256-chacha", "tls13-x25519-chacha"])
+@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128", "tls13-p256-aes256", "tls13-x25519-aes256", "tls13-p256-chacha", "tls13-x25519-chacha", "tls13-dhe-aes128"])
 def tls_capture(request):
     return fixture(request.param)
 
@@ -64,9 +64,16 @@ def messages(payload):
 def test_genuine_tls13_schedule_and_http_match_independent_endpoints(tls_capture):
     session, secret, expected = tls_capture
     assert not session.blockers and session.alpn is None and session.authentication is None
-    assert problem_for(session).curve == expected["public_problem"]["curve"]
+    problem = problem_for(session)
+    if session.dhe:
+        assert problem.kind == "ff_dlog"
+        for field in ("p", "g", "y", "order"):
+            assert getattr(problem, field) == int(expected["public_problem"][field], 16)
+    else:
+        assert problem.curve == expected["public_problem"]["curve"]
     transcript = b"".join(h.wire for h in session.clear_handshakes)
-    client, server, master = handshake_secrets(ecdhe_shared_secret(session.ecdhe, secret), transcript, session.cipher_suite)
+    shared = ffdhe_shared_secret(session.dhe, secret, padded=True) if session.dhe else ecdhe_shared_secret(session.ecdhe, secret)
+    client, server, master = handshake_secrets(shared, transcript, session.cipher_suite)
     assert client == traffic(expected, "c2s", "handshake")
     assert server == traffic(expected, "s2c", "handshake")
     assert master.hex() == expected["tls13_master_secret_hex"]
@@ -187,7 +194,7 @@ def test_missing_finished_late_ccs_and_wrong_scalar_rejected(tls_capture):
         decrypt_tls13(replace(session, records=session.records + (Record("s2c", 0, 20, 0x0303, b"\x01"),)), secret)
     assert exc.value.code == "INVALID_TLS"
     with pytest.raises(QSploitError) as exc:
-        wrong = ECDLogSecret(secret.x + 1) if isinstance(secret, ECDLogSecret) else X25519Secret(secret.scalar[:1] + bytes([secret.scalar[1] ^ 1]) + secret.scalar[2:])
+        wrong = type(secret)(secret.x + 1) if isinstance(secret, (ECDLogSecret, FFDLogSecret)) else X25519Secret(secret.scalar[:1] + bytes([secret.scalar[1] ^ 1]) + secret.scalar[2:])
         decrypt_tls13(session, wrong)
     assert exc.value.code == "INVALID_DLOG_RESULT"
 
@@ -196,6 +203,8 @@ def test_missing_finished_late_ccs_and_wrong_scalar_rejected(tls_capture):
     ("hrr", "HRR_UNSUPPORTED"), ("invalid_public", "INVALID_EC_PUBLIC")])
 def test_tls13_unsupported_handshake_families_have_explicit_blockers(variant, code, tls_capture):
     session, _, _ = tls_capture
+    if variant == "invalid_public" and session.dhe:
+        code = "INVALID_DH_PUBLIC"
     records = list(session.records)
     direction = "c2s" if variant == "early_data" else "s2c"
     index = next(i for i, r in enumerate(records) if r.direction == direction and r.content_type == 22)
@@ -209,7 +218,7 @@ def test_tls13_unsupported_handshake_families_have_explicit_blockers(variant, co
         old_extensions = dict(hello["ext"])
         if variant == "invalid_public":
             share = hello["ext"][51]
-            value = b"\x04" + bytes(64) if session.ecdhe.group == 23 else bytes(32)
+            value = bytes(256) if session.dhe else b"\x04" + bytes(64) if session.ecdhe.group == 23 else bytes(32)
             hello["ext"][51] = share[:4] + value
             extension = b""
         else:

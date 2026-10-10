@@ -21,7 +21,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | DHE_RSA ffdhe2048 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
 | TLS 1.2 | ECDHE_RSA P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
 | TLS 1.3 | ECDHE P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: full handshake and exact HTTP |
-| TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
+| TLS 1.3 | FFDHE2048 | AES-128-GCM | **Verified**: full handshake, fixed-width shared secret and exact HTTP |
+| TLS 1.3 | FFDHE2048 | AES-256-GCM / ChaCha20-Poly1305 | Pending the next sequential gates |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
 
 HTTP/1.1 reconstruction, chunked framing, bounded gzip decoding, and inert HTML
@@ -190,3 +191,14 @@ ordinary worker/API result; CertificateVerify, both Finished and all 20 protecte
 records authenticate. No production change was needed beyond the existing
 X25519 and TLS 1.3 ChaCha implementations. All requested ECDHE AEAD combinations
 are now covered; finite-field TLS 1.3 is the remaining protocol family.
+
+## Extension 6a: TLS 1.3 FFDHE2048 / AES-128-GCM
+
+A genuine known-share capture passes the normal upload, spawned finite-field
+recovery, inspector and isolated-runtime flow. Independent endpoint secrets and
+HTTP match; both Finished, CertificateVerify and all 20 protected records verify.
+A separate unknown-share capture fails recovery honestly. Wire validation checks
+exact 256-byte shares, offered groups, approved parameters and subgroup membership.
+An independent OpenSSL-crosschecked leading-zero vector proves TLS 1.3 retains
+all 256 shared-secret bytes while TLS 1.2 strips the leading zero. The integrated
+FFDHE/API/provenance gate passed 89 tests; the classical regression passed 258.

@@ -18,9 +18,14 @@ TLS 1.2 P-256 ChaCha and inspector race fixes are at `9a6d44f`
 (91 targeted Python passes, four pure Node controller tests, isolation verified).
 
 TLS 1.2 X25519 ChaCha is at `be82599` (117 targeted passes, isolation verified).
-Current gate: TLS 1.3 P-256 ChaCha passes 287 integrated tests and isolation;
-independent vector confirmation is pending before checkpoint. Next: TLS 1.3
-X25519 ChaCha, then TLS 1.3 ffdhe2048 (AES128, AES256, ChaCha).
+TLS 1.3 P-256 ChaCha is at `652b87c` (883 passed, one browser skip).
+TLS 1.3 X25519 ChaCha is at `a29d52e` (336 targeted passes, isolation verified).
+Current gate: TLS 1.3 ffdhe2048/AES128, including exact share/secret padding.
+Then add ffdhe2048/AES256 and ffdhe2048/ChaCha individually.
+The root prepared `/private/tmp/qsploit-release-runtime` with only 19 locked base
+packages (offline hash-checked install); no wheel installed there yet. Final
+build/install + `scripts/prove_installed_runtime.py` must run from outside repo.
+
 Complete one path with genuine capture/negative/API proof before next; checkpoint.
 No DLP quantum solver is being implemented; only unavailable recovery is simulated.
 

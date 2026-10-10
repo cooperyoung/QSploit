@@ -14,8 +14,8 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
-from .keyexchange import ecdhe_shared_secret
-from .models import ApplicationStreams, FFDLogSecret, ParsedTLS, QSploitError, Record, RecoveredSecret, RSAFactors
+from .keyexchange import ecdhe_shared_secret, ffdhe_shared_secret
+from .models import ApplicationStreams, ParsedTLS, QSploitError, Record, RecoveredSecret, RSAFactors
 from .tls import MAX_HANDSHAKE_BYTES, problem_for
 
 
@@ -85,14 +85,7 @@ def recover_premaster(session: ParsedTLS, factors: RecoveredSecret) -> bytes:
     if session.kex == "dhe":
         key = session.dhe
         assert key is not None
-        if not isinstance(factors, FFDLogSecret):
-            raise QSploitError("INVALID_RECOVERY_RESULT", "DHE recovery requires a verified discrete logarithm result.")
-        x = factors.x
-        if type(x) is not int or not 1 <= x < key.order or pow(key.g, x, key.p) != key.server_public:
-            raise QSploitError("INVALID_DLOG_RESULT", "The recovered exponent does not reproduce the captured server public share.")
-        shared = pow(key.client_public, x, key.p)
-        # RFC 5246 section 8.1.2: leading zero bytes of Z are stripped.
-        return shared.to_bytes((shared.bit_length() + 7) // 8, "big")
+        return ffdhe_shared_secret(key, factors)
     if not isinstance(factors, RSAFactors):
         raise QSploitError("INVALID_RECOVERY_RESULT", "RSA transport recovery requires a verified factor pair.")
     key = session.rsa

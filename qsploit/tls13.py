@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
-from .keyexchange import ecdhe_shared_secret
+from .keyexchange import ecdhe_shared_secret, ffdhe_shared_secret
 from .models import ApplicationStreams, ParsedTLS, QSploitError, Record, RecoveredSecret
 from .tls import MAX_HANDSHAKE_BYTES, MAX_HANDSHAKE_MESSAGES, MAX_RSA_BITS, _Reader, _alpn, _extensions, _hello, problem_for
 
@@ -271,7 +271,7 @@ def _direction(session: ParsedTLS, direction: str, handshake_secret: bytes, mast
 
 def decrypt_tls13(session: ParsedTLS, secret: RecoveredSecret) -> ApplicationStreams:
     problem_for(session)
-    if session.tls_version != 0x0304 or session.cipher_suite not in CIPHER_PARAMETERS or session.ecdhe is None:
+    if session.tls_version != 0x0304 or session.cipher_suite not in CIPHER_PARAMETERS or (session.ecdhe is None and session.dhe is None):
         raise QSploitError("UNSUPPORTED_CIPHER", "This TLS 1.3 schedule supports AES-GCM and ChaCha20-Poly1305 only.")
     client = [h.wire for h in session.clear_handshakes if h.direction == "c2s"]
     server = [h.wire for h in session.clear_handshakes if h.direction == "s2c"]
@@ -281,7 +281,8 @@ def decrypt_tls13(session: ParsedTLS, secret: RecoveredSecret) -> ApplicationStr
     client_extensions = _hello(client[0], True)["ext"]
     if 42 in client_extensions:
         raise QSploitError("EARLY_DATA_UNSUPPORTED", "TLS 1.3 early data is not implemented.")
-    chs, shs, master = handshake_secrets(ecdhe_shared_secret(session.ecdhe, secret), hello_transcript, session.cipher_suite)
+    shared = ffdhe_shared_secret(session.dhe, secret, padded=True) if session.kex == "dhe" else ecdhe_shared_secret(session.ecdhe, secret)
+    chs, shs, master = handshake_secrets(shared, hello_transcript, session.cipher_suite)
     server_result = _direction(session, "s2c", shs, master, hello_transcript, client_extensions)
     client_application = derive_secret(master, "c ap traffic", server_result[1], session.cipher_suite)
     client_result = _direction(session, "c2s", chs, master, server_result[1], client_extensions, client_application)

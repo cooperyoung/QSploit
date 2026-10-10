@@ -51,7 +51,8 @@ a:hover {
 }
 button:focus-visible,
 a:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+tr[tabindex]:focus-visible {
   outline: 3px solid #83a9ff;
   outline-offset: 4px;
 }
@@ -907,5 +908,15 @@ footer {
   footer {
     gap: 15px;
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }

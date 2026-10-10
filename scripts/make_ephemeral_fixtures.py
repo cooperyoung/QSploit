@@ -62,6 +62,9 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
     # Older TLS1.2 clients may omit finite-field group offers; also configure
     # the standard explicit fallback, rather than tlslite's RFC5054 default.
     settings.dhParams = RFC7919_GROUPS[0]
+    if family=='dhe' and tls13:
+        settings.eccCurves = []
+        settings.keyShares = ['ffdhe2048']
     if family!='dhe':
         group = 'secp256r1' if family=='p256' else 'x25519'
         settings.eccCurves = [group]
@@ -299,8 +302,8 @@ def main():
         parser.error('--aes256 requires the baseline TLS 1.3 capture mode')
     if args.chacha and (args.aes256 or args.key_update):
         parser.error('ChaCha20-Poly1305 requires a baseline capture and cipher choices are exclusive')
-    if args.tls13 and args.family=='dhe':
-        parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
+    if args.tls13 and args.family=='dhe' and (args.aes256 or args.chacha or args.key_update):
+        parser.error('The current TLS 1.3 FFDHE2048 gate is AES-128 baseline only')
     if tlslite.__version__ != '0.8.2':
         raise RuntimeError('The development observer is verified against tlslite-ng 0.8.2 only')
     cases = [('tls12-dhe-aes128-ems','aes128gcm',True,True),
