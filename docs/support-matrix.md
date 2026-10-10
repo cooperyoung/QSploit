@@ -197,8 +197,8 @@ The last ECDHE cipher combination passes a separate genuine known/unknown-share
 capture gate. Its independent SHA-256 traffic secrets and exact HTTP match the
 ordinary worker/API result; CertificateVerify, both Finished and all 20 protected
 records authenticate. No production change was needed beyond the existing
-X25519 and TLS 1.3 ChaCha implementations. All requested ECDHE AEAD combinations
-are now covered; finite-field TLS 1.3 is the remaining protocol family.
+X25519 and TLS 1.3 ChaCha implementations. At that checkpoint all requested ECDHE AEAD combinations
+were covered; the finite-field TLS 1.3 gates followed below.
 
 ## Extension 6a: TLS 1.3 FFDHE2048 / AES-128-GCM
 

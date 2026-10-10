@@ -1,0 +1,405 @@
+[
+  {
+    "fixture": "tls12-dhe-aes128-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-dhe-aes128-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-dhe-aes256-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-dhe-aes256-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-dhe-chacha-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-dhe-chacha-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-p256-aes128-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-p256-aes128-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-p256-aes256-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-p256-aes256-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-p256-chacha-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-p256-chacha-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-x25519-aes128-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-x25519-aes128-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-x25519-aes256-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-x25519-aes256-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-x25519-chacha-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-ecdhe-x25519-chacha-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-rsa-aes256-noems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-rsa-aes256",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls12-rsa-ems",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 19,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-dhe-aes128",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-dhe-aes256",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-dhe-chacha",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-p256-aes128",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-p256-aes256",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-p256-chacha",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-x25519-aes128-keyupdate",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 21,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-x25519-aes128",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-x25519-aes256",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  },
+  {
+    "fixture": "tls13-x25519-chacha",
+    "hashes": {
+      "c2s": "316a7c7f3b7a7d402296f5a285bb9e0c7d493d79d74710414cbbc4354c56dd03",
+      "s2c": "d9ff22f992c44c8d6ffb25808effbdec789fbe4fcc1338efe585f158e0910bfb"
+    },
+    "client_finished_verified": true,
+    "server_finished_verified": true,
+    "authenticated_records": 20,
+    "oracle_access": "denied",
+    "execution": "none",
+    "method": "fixture_lookup"
+  }
+]

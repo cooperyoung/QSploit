@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-10",
+  "source_checkpoint": "8e10660",
+  "python": "3.12.10",
+  "python_tests": {
+    "passed": 1093,
+    "skipped": 1,
+    "warnings": 2,
+    "seconds": 155.7
+  },
+  "node_controller_tests": {
+    "passed": 4,
+    "browser": false
+  },
+  "isolated_captures": 31,
+  "mixed_sessions": 33,
+  "protocol_combinations": 20,
+  "wheel": "qsploit-0.1.0-py3-none-any.whl",
+  "wheel_sha256": "424835047628aec4a808947f86ba6d30c66fc10f6798f4f9ab9762f0460a4f5e",
+  "browser_check": "not performed: local browser access denied",
+  "ionq_cloud_jobs": 0,
+  "hosted_qollab_runs": 0
+}
