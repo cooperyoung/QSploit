@@ -33,6 +33,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls12-dhe-chacha-unknown.pcap` | Same ChaCha20 family with a fresh server share whose private exponent is not retained |
 | `tls12-ecdhe-p256-chacha-ems.pcap`, `tls12-ecdhe-p256-chacha-noems.pcap` | Genuine ECDHE_RSA/P-256 with ChaCha20-Poly1305/SHA-256 (`0xcca8`), both TLS 1.2 schedules |
 | `tls12-ecdhe-p256-chacha-unknown.pcap` | Same P-256 ChaCha20 family with an unknown server point |
+| `tls12-ecdhe-x25519-chacha-ems.pcap`, `tls12-ecdhe-x25519-chacha-noems.pcap` | Genuine ECDHE_RSA/X25519 with ChaCha20-Poly1305/SHA-256 (`0xcca8`), both schedules |
+| `tls12-ecdhe-x25519-chacha-unknown.pcap` | Same X25519 ChaCha20 family with an unknown server share |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -129,8 +131,11 @@ The DHE ChaCha20 fixtures force `TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256` (`0x
 ```sh
 .venv/bin/python scripts/make_ephemeral_fixtures.py --family dhe --chacha
 .venv/bin/python scripts/make_ephemeral_fixtures.py --family p256 --chacha
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family x25519 --chacha
 ```
 
 The command stages two known captures and an unknown-share capture, then appends only the two observed test exponents to the DHE registry. Every earlier capture and registry entry is preserved.
 
 The P-256 variant forces `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256` (`0xcca8`) and uses the unchanged ECDH scalar observer and EC registry. It independently verifies both TLS 1.2 schedules in exactly the same endpoint harness.
+
+The X25519 variant uses the same cipher suite and schedules with RFC 7748 key agreement, preserving the original random private encodings before any clamping. Each capture has its own exact public-share registry key; neither group membership nor the RSA signing certificate can produce a fixture match for the unknown case.

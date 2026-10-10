@@ -294,8 +294,8 @@ def main():
         parser.error('--key-update requires --tls13')
     if args.aes256 and (not args.tls13 or args.key_update):
         parser.error('--aes256 requires the baseline TLS 1.3 capture mode')
-    if args.chacha and (args.tls13 or args.aes256 or args.family=='x25519'):
-        parser.error('The current ChaCha20-Poly1305 gate supports TLS 1.2 DHE and P-256')
+    if args.chacha and (args.tls13 or args.aes256):
+        parser.error('The current ChaCha20-Poly1305 gate supports TLS 1.2 only')
     if args.tls13 and args.family=='dhe':
         parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
     if tlslite.__version__ != '0.8.2':

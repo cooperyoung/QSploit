@@ -11,11 +11,16 @@ Its full run had 651 passes and one outdated unsupported-status expectation;
 the expectation was corrected for newly supported TLS 1.3, and all 16 API tests
 then passed. Genuine KeyUpdate isolation verifies 21 protected records.
 
-TLS 1.3 P-256/AES256/SHA384 has completed genuine/API/isolated checks and 131
-TLS 1.3 tests; full regression is in progress before checkpoint. Next ordered
-work: X25519/AES256, then ChaCha (DHE TLS 1.2 first), then TLS 1.3 FFDHE.
-No DLP quantum solver is being implemented; only the unavailable recovery is
-simulated. Finish all these authorized paths autonomously.
+TLS 1.3 P-256/AES256 is at `cc84ef3` (706 passed, one browser skip).
+TLS 1.3 X25519/AES256 is at `cb1fc59` (244 targeted passes, isolation verified).
+TLS 1.2 DHE ChaCha is at `3ddc603` (780 passed, one browser skip).
+TLS 1.2 P-256 ChaCha and inspector race fixes are at `9a6d44f`
+(91 targeted Python passes, four pure Node controller tests, isolation verified).
+
+Current active gate: X25519 TLS 1.2 ChaCha EMS/non-EMS. Next: TLS 1.3 P-256
+ChaCha, TLS 1.3 X25519 ChaCha, then TLS 1.3 ffdhe2048 (AES128, AES256, ChaCha).
+Complete one path with genuine capture/negative/API proof before next; checkpoint.
+No DLP quantum solver is being implemented; only unavailable recovery is simulated.
 
 The root owns app/UI/docs/mixed-tour integration; classical owns TLS engines;
 fixtures owns genuine endpoint generators/assets/API per-path tests; quantum

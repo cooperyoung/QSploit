@@ -7,13 +7,14 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import pytest
 
-from qsploit.models import ECDLogSecret, FFDLogSecret, QSploitError
+from qsploit.models import ECDLogSecret, FFDLogSecret, QSploitError, X25519Secret
 from qsploit.pcap import read_connections
 from qsploit.tls import _ecdhe_key_exchange, _hello, parse_tls
 from qsploit.tls12 import decrypt_record, decrypt_tls12, derive_key_block, derive_master_secret
 
 ROOT = Path(__file__).parents[1]
-NAMES = ["tls12-dhe-chacha-ems", "tls12-dhe-chacha-noems", "tls12-ecdhe-p256-chacha-ems", "tls12-ecdhe-p256-chacha-noems"]
+NAMES = ["tls12-dhe-chacha-ems", "tls12-dhe-chacha-noems", "tls12-ecdhe-p256-chacha-ems", "tls12-ecdhe-p256-chacha-noems",
+         "tls12-ecdhe-x25519-chacha-ems", "tls12-ecdhe-x25519-chacha-noems"]
 
 
 def fixture(name):
@@ -22,8 +23,12 @@ def fixture(name):
     expected = json.loads(path.with_suffix(".expected.json").read_text())
     registry_file = "dlog.json" if session.kex == "dhe" else "ec_dlog.json"
     registry = json.loads((ROOT / "qsploit/demo" / registry_file).read_text())
-    scalar = int(registry[expected["recovery_registry_key"]]["x"], 16)
-    secret = FFDLogSecret(scalar) if session.kex == "dhe" else ECDLogSecret(scalar)
+    entry = registry[expected["recovery_registry_key"]]
+    if "scalar" in entry:
+        secret = X25519Secret(bytes.fromhex(entry["scalar"]))
+    else:
+        scalar = int(entry["x"], 16)
+        secret = FFDLogSecret(scalar) if session.kex == "dhe" else ECDLogSecret(scalar)
     return session, secret, expected
 
 
@@ -92,7 +97,7 @@ def test_valid_chacha_tag_with_wrong_finished_rejected(name, direction):
 
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
-@pytest.mark.parametrize("name", [NAMES[0], NAMES[2]])
+@pytest.mark.parametrize("name", [NAMES[0], NAMES[2], NAMES[4]])
 def test_split_chacha_finished_updates_implicit_record_nonces(direction, name):
     session, secret, expected = fixture(name)
     key, iv = traffic(session, secret, direction)
