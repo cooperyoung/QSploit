@@ -127,8 +127,13 @@ class ECDLogProblem:
 class ECDLogSecret:
     x: int = field(repr=False)
 
+@dataclass(frozen=True)
+class X25519Secret:
+    # RFC 7748 little-endian private input; X25519 applies its required clamping.
+    scalar: bytes = field(repr=False)
+
 PublicProblem = RSAProblem | FFDLogProblem | ECDLogProblem
-RecoveredSecret = RSAFactors | FFDLogSecret | ECDLogSecret
+RecoveredSecret = RSAFactors | FFDLogSecret | ECDLogSecret | X25519Secret
 
 @dataclass(frozen=True)
 class ExecutionOptions:

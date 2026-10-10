@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from .models import ECDHEKeyExchange, ECDLogProblem, FFDHEKeyExchange, FFDLogProblem, Handshake, ParsedTLS, PublicProblem, QSploitError, Record, RSAKeyTransport, RSAProblem, TCPConnection
-from .groups import FFDHE2048_ORDER, validate_ffdhe2048, validate_p256_point
+from .groups import FFDHE2048_ORDER, normalize_x25519_point, validate_ffdhe2048, validate_p256_point, validate_x25519_point
 
 MAX_HANDSHAKE_BYTES = 1024 * 1024
 MAX_RECORDS = 200_000
@@ -285,13 +285,14 @@ def _ecdhe_key_exchange(server_wire: bytes, client_wire: bytes, certificate_wire
         raise QSploitError("UNSUPPORTED_GROUP", "Only named-curve ECDHE is supported.")
     group, server_public = reader.number(2), reader.vector(1)
     parameters_wire = reader.data[:reader.pos]
-    if group != 23:
-        raise QSploitError("UNSUPPORTED_GROUP", "ECDHE recovery currently supports secp256r1 only.")
+    if group not in (23, 29):
+        raise QSploitError("UNSUPPORTED_GROUP", "ECDHE recovery currently supports secp256r1 and X25519 only.")
     client_reader = _Reader(client_wire[4:])
     client_public = client_reader.vector(1)
     client_reader.end()
-    validate_p256_point(server_public)
-    validate_p256_point(client_public)
+    validate_point = validate_p256_point if group == 23 else validate_x25519_point
+    validate_point(server_public)
+    validate_point(client_public)
     if 10 in client_extensions:
         groups_reader = _Reader(client_extensions[10])
         offered = groups_reader.vector(2)
@@ -305,8 +306,10 @@ def _ecdhe_key_exchange(server_wire: bytes, client_wire: bytes, certificate_wire
             formats_reader = _Reader(extensions[11])
             formats = formats_reader.vector(1)
             formats_reader.end()
-            if 0 not in formats:
-                raise QSploitError("UNSUPPORTED_POINT_FORMAT", "ECDHE recovery requires negotiated uncompressed points.")
+            if not formats:
+                raise QSploitError("INVALID_TLS", "The EC point-formats extension must contain a nonempty list.")
+            if group == 23 and 0 not in formats:
+                raise QSploitError("UNSUPPORTED_POINT_FORMAT", "P-256 ECDHE recovery requires negotiated uncompressed points.")
     if 11 in server_extensions and 11 not in client_extensions:
         raise QSploitError("INVALID_TLS", "The server returned an unoffered EC point-formats extension.")
     _verify_server_signature(reader, parameters_wire, certificate_wire, client_random, server_random, client_extensions)
@@ -492,9 +495,13 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
         return FFDLogProblem(key.p, key.g, key.server_public, key.order)
     if session.kex == "ecdhe" and session.ecdhe is not None and session.cipher_suite in SUPPORTED_ECDHE_GCM_SUITES:
         key = session.ecdhe
-        if key.group != 23:
-            raise QSploitError("UNSUPPORTED_GROUP", "ECDHE recovery currently supports secp256r1 only.")
-        validate_p256_point(key.server_public)
-        validate_p256_point(key.client_public)
-        return ECDLogProblem("secp256r1", key.server_public)
+        if key.group == 23:
+            validate_p256_point(key.server_public)
+            validate_p256_point(key.client_public)
+            return ECDLogProblem("secp256r1", key.server_public)
+        if key.group == 29:
+            validate_x25519_point(key.server_public)
+            validate_x25519_point(key.client_public)
+            return ECDLogProblem("x25519", normalize_x25519_point(key.server_public))
+        raise QSploitError("UNSUPPORTED_GROUP", "ECDHE recovery currently supports secp256r1 and X25519 only.")
     raise QSploitError("UNSUPPORTED_KEX", "The selected key exchange or its captured public parameters are unsupported.")

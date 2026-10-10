@@ -1,14 +1,39 @@
 """Public mathematical parameters shared by classical and quantum components.
 
-The implemented groups are RFC 7919 ffdhe2048 and secp256r1. No capture,
+The implemented groups are RFC 7919 ffdhe2048, secp256r1, and X25519. No capture,
 handshake, provider, or secret-fixture data belongs in this module.
 Source: https://www.rfc-editor.org/rfc/rfc7919#appendix-A.1
 """
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, x25519
 
 from .models import QSploitError
 
 P256_ORDER = int("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
+X25519_FIELD = 2**255 - 19
+
+
+def normalize_x25519_point(public_point: bytes) -> bytes:
+    """RFC 7748 section 5: mask bit 255, then reduce the little-endian u."""
+    if type(public_point) is not bytes or len(public_point) != 32:
+        raise QSploitError("INVALID_EC_PUBLIC", "X25519 requires an exactly 32-byte public u-coordinate.")
+    value = (int.from_bytes(public_point, "little") & (2**255 - 1)) % X25519_FIELD
+    return value.to_bytes(32, "little")
+
+
+def validate_x25519_point(public_point: bytes) -> x25519.X25519PublicKey:
+    """Accept RFC encodings, including twist points; reject low-order shares.
+
+    This public, fixed probe detects all-zero exchanges caused by low-order
+    points. The actual recovered-key exchange independently checks its result.
+    """
+    public = x25519.X25519PublicKey.from_public_bytes(normalize_x25519_point(public_point))
+    try:
+        probe = x25519.X25519PrivateKey.from_private_bytes(b"\x01" * 32).exchange(public)
+    except ValueError:
+        raise QSploitError("INVALID_EC_PUBLIC", "The X25519 public share has low order and produces an all-zero secret.") from None
+    if probe == bytes(32):
+        raise QSploitError("INVALID_EC_PUBLIC", "The X25519 public share produces an all-zero secret.")
+    return public
 
 
 def validate_p256_point(public_point: bytes) -> ec.EllipticCurvePublicKey:

@@ -5,6 +5,14 @@
 **Supersedes:** `QSploit_Teammate_Brief(1).md` and `QSploit_Engineering_Blueprint(1).md` wherever they conflict with this specification.
 **Priority:** Correct genuine TLS pipeline → complete future-system demonstration → robustness and presentation → separate quantum evidence. Use minimal infrastructure throughout.
 
+> **Protocol extension addendum (10 October 2026):** The original static-RSA
+> milestone below is preserved at Git checkpoint `8c207d2`. The user's subsequent
+> assignment authorizes ordered protocol extensions after that milestone. The
+> current [support matrix](support-matrix.md) supersedes baseline-only scope and
+> future-roadmap wording in this document. Recovery now uses typed public
+> factorization or discrete-log problems and algorithm-specific `Recovery.secret`
+> results. No DLP quantum solver is required to validate a genuine TLS path.
+
 ## 1. Executive summary
 
 Build **one local Python application** that serves a small browser UI. A user uploads a PCAP, selects a TLS connection, requests recovery, and inspects authenticated HTTP plaintext when the capture and recovery result permit it.
@@ -807,7 +815,7 @@ A owns `app.py` and `jobs.py`; B owns the quantum directory. Jointly freeze `mod
 
 **Do not spend early time on DHE, ECDHE, TLS 1.3 decryption, additional cipher suites, database support or frontend frameworks.** A narrow genuine TLS path plus correctly tested generic modular arithmetic is already substantial work. The original five-hour schedule is not a credible guaranteed delivery estimate for everything requested from scratch. For a fixed hackathon window, arrive with fixtures and arithmetic validated. Cut cloud integration and presentation polish before cutting cryptographic verification or relabeling a mock as a quantum result.
 
-The implementation agent should work gate by gate, report actual evidence and stop expanding scope once the release gates pass. Do not implement the future roadmap merely because it is described here.
+Work gate by gate and report actual evidence. After the original release milestone, follow the separately authorized ordered protocol extensions in the support matrix, preserving a working checkpoint before each new path.
 
 ## 12. Future expansion
 

@@ -17,6 +17,9 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls12-ecdhe-p256-aes128-ems.pcap`, `tls12-ecdhe-p256-aes128-noems.pcap` | Genuine ECDHE_RSA/P-256 with AES-128-GCM/SHA-256, both schedules |
 | `tls12-ecdhe-p256-aes256-ems.pcap`, `tls12-ecdhe-p256-aes256-noems.pcap` | Genuine ECDHE_RSA/P-256 with AES-256-GCM/SHA-384, both schedules |
 | `tls12-ecdhe-p256-unknown.pcap` | Same P-256 group and signing certificate with a fresh server public point whose private scalar is not retained |
+| `tls12-ecdhe-x25519-aes128-ems.pcap`, `tls12-ecdhe-x25519-aes128-noems.pcap` | Genuine ECDHE_RSA/X25519 with AES-128-GCM/SHA-256, both schedules |
+| `tls12-ecdhe-x25519-aes256-ems.pcap`, `tls12-ecdhe-x25519-aes256-noems.pcap` | Genuine ECDHE_RSA/X25519 with AES-256-GCM/SHA-384, both schedules |
+| `tls12-ecdhe-x25519-unknown.pcap` | Fresh X25519 server share whose private encoding is deliberately not retained |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -65,3 +68,13 @@ The P-256 fixtures use the same independent OpenSSL/tlslite endpoints and the sa
 ```
 
 This targeted command preserves all prior RSA and DHE captures. `qsploit/demo/ec_dlog.json` uses canonical lowercase `secp256r1:<uncompressed-public-point-hex>` keys and `{ "x": "hex" }` values. Only four known test scalars are retained; the fifth unknown-share capture deliberately has no recovery entry. Certificate private keys and temporary OpenSSL keylogs are deleted. Runtime recovery validates the scalar against the actual captured server point, then derives and authenticates the TLS traffic using the captured client point. No application bytes or TLS traffic secrets are in this recovery registry.
+
+## X25519 endpoint evidence
+
+The X25519 fixtures use the same independent TLS 1.2 endpoints, RSA signature and oracle checks. The group is forced to X25519 (29). Its observer copies the original 32 random bytes returned by tlslite's key sampler, then derives a public value using a separate bytearray copy: tlslite's multiplication clamps bytearrays in place, so inspecting the original directly could otherwise change the endpoint's return. The observer verifies the original bytes remain unchanged and returns that original object. Cryptography independently computes the same public value from the recorded bytes.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family x25519
+```
+
+The EC registry adds canonical `x25519:<32-byte-public-u-hex>` keys and `{ "scalar": "32-byte-private-encoding-hex" }` values, preserving every P-256 entry and every earlier capture. These are RFC 7748 private input encodings, not ordinary big-endian integer exponents; the X25519 primitive applies clamping and little-endian interpretation. Only four known fixtures are retained, and the unknown-share capture must fail lookup. The application still derives the actual shared secret with the captured peer share and verifies all protected records and both Finished messages.

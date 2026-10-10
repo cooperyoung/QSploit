@@ -56,11 +56,17 @@ def test_unknown_valid_p256_public_point_not_invented(registry):
     assert exc.value.code == "FIXTURE_NOT_FOUND"
 
 
-@pytest.mark.parametrize("curve", ["x25519", "secp384r1", "P-256", "", None])
+@pytest.mark.parametrize("curve", ["secp384r1", "P-256", "", None])
 def test_unimplemented_curve_not_accepted(curve):
     with pytest.raises(QSploitError) as exc:
         engine.validate_problem(replace(public_problem(), curve=curve))
     assert exc.value.code == "UNSUPPORTED_GROUP"
+
+
+def test_p256_point_encoding_cannot_be_used_as_x25519():
+    with pytest.raises(QSploitError) as exc:
+        engine.validate_problem(replace(public_problem(), curve="x25519"))
+    assert exc.value.code == "INVALID_EC_PUBLIC"
 
 
 @pytest.mark.parametrize("point", [b"", b"\x00", b"\x04" + bytes(64), b"\x04" + b"\xff" * 64,

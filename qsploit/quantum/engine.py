@@ -13,7 +13,7 @@ import time
 
 from qsploit.models import (ExecutionOptions, Progress, QSploitError, Recovery, Report,
                             RSAFactors, RSAProblem, FFDLogProblem, FFDLogSecret,
-                            ECDLogProblem, ECDLogSecret,
+                            ECDLogProblem, ECDLogSecret, X25519Secret,
                             PublicProblem, RecoveredSecret)
 from qsploit.groups import validate_ffdhe2048
 
@@ -36,10 +36,13 @@ def validate_problem(problem: PublicProblem) -> None:
     elif isinstance(problem, FFDLogProblem) and problem.kind == "ff_dlog":
         validate_ffdhe2048(problem.p, problem.g, problem.order, problem.y)
     elif isinstance(problem, ECDLogProblem) and problem.kind == "ec_dlog":
-        if problem.curve != "secp256r1":
-            raise QSploitError("UNSUPPORTED_GROUP", "Elliptic-curve recovery currently supports secp256r1 only.")
-        from qsploit.groups import validate_p256_point
-        validate_p256_point(problem.public_point)
+        from qsploit.groups import validate_p256_point, validate_x25519_point
+        if problem.curve == "secp256r1":
+            validate_p256_point(problem.public_point)
+        elif problem.curve == "x25519":
+            validate_x25519_point(problem.public_point)
+        else:
+            raise QSploitError("UNSUPPORTED_GROUP", "Elliptic-curve recovery supports secp256r1 and X25519 only.")
     else:
         raise QSploitError("UNSUPPORTED_PROBLEM", "The mathematical problem type is not supported.")
 
@@ -114,9 +117,18 @@ def verify_secret(problem: PublicProblem, secret: RecoveredSecret) -> None:
                 or pow(problem.g, secret.x, problem.p) != problem.y):
             raise QSploitError("INVALID_DLOG_RESULT", "The recovered exponent does not match the public finite-field problem.")
     elif isinstance(problem, ECDLogProblem):
-        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric import ec, x25519
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-        from qsploit.groups import P256_ORDER
+        from qsploit.groups import P256_ORDER, normalize_x25519_point
+        if problem.curve == "x25519":
+            if not isinstance(secret, X25519Secret) or type(secret.scalar) is not bytes or len(secret.scalar) != 32:
+                raise QSploitError("INVALID_DLOG_RESULT", "X25519 recovery requires a 32-byte private input.")
+            # RFC 7748 clamps the private input inside the X25519 primitive.
+            # Bytes differing only in clamped-away bits represent the same key.
+            derived = x25519.X25519PrivateKey.from_private_bytes(secret.scalar).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            if derived != normalize_x25519_point(problem.public_point):
+                raise QSploitError("INVALID_DLOG_RESULT", "The recovered X25519 private input does not reproduce the public share.")
+            return
         if not isinstance(secret, ECDLogSecret) or type(secret.x) is not int or not 1 <= secret.x < P256_ORDER:
             raise QSploitError("INVALID_DLOG_RESULT", "The recovered P-256 scalar has an invalid type or range.")
         derived = ec.derive_private_key(secret.x, ec.SECP256R1()).public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
@@ -135,7 +147,11 @@ def ec_registry_key(problem: ECDLogProblem) -> str:
     validate_problem(problem)
     if not isinstance(problem, ECDLogProblem):
         raise QSploitError("UNSUPPORTED_PROBLEM", "This problem does not request an elliptic-curve discrete logarithm.")
-    return problem.curve + ":" + problem.public_point.hex()
+    point = problem.public_point
+    if problem.curve == "x25519":
+        from qsploit.groups import normalize_x25519_point
+        point = normalize_x25519_point(point)
+    return problem.curve + ":" + point.hex()
 
 
 def known_secret(problem: PublicProblem) -> RecoveredSecret:
@@ -151,8 +167,11 @@ def known_secret(problem: PublicProblem) -> RecoveredSecret:
         item = entries.get(key)
         if item is None:
             raise QSploitError("FIXTURE_NOT_FOUND", "No known test scalar matches this complete public cryptographic problem.")
-        value = int(item["x"], 16)
-        secret = FFDLogSecret(value) if isinstance(problem, FFDLogProblem) else ECDLogSecret(value)
+        if isinstance(problem, ECDLogProblem) and problem.curve == "x25519":
+            secret = X25519Secret(bytes.fromhex(item["scalar"]))
+        else:
+            value = int(item["x"], 16)
+            secret = FFDLogSecret(value) if isinstance(problem, FFDLogProblem) else ECDLogSecret(value)
     except QSploitError:
         raise
     except (OSError, ValueError, TypeError, KeyError, AttributeError):

@@ -3,7 +3,7 @@
 
 A tlslite-ng 0.8.2 server and independent OpenSSL client use their normal RNGs
 and TLS wire implementations. A temporary observer records the server's random
-FFDH or P-256 exponent by calling the original get_random_private_key unchanged.
+FFDH/P-256 exponent or X25519 scalar by calling the original random key sampler unchanged.
 Only explicit known-test discrete logs are saved in the demo registry. Private
 certificate keys and OpenSSL session-key logs live in a TemporaryDirectory.
 Requires the project's fixture extra and tcpdump capture access.
@@ -27,7 +27,7 @@ from tlslite.api import HandshakeSettings, TLSConnection, X509, X509CertChain, p
 from tlslite.keyexchange import ECDHKeyExchange, FFDHKeyExchange
 from tlslite.mathtls import RFC7919_GROUPS
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, x25519
 
 from make_fixtures import (DEMO, FIXTURES, PacketCapture, b64, http_payloads,
                            identity, listener, packet_stats, sha)
@@ -54,10 +54,11 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
     # Older TLS1.2 clients may omit finite-field group offers; also configure
     # the standard explicit fallback, rather than tlslite's RFC5054 default.
     settings.dhParams = RFC7919_GROUPS[0]
-    if family=='p256':
-        settings.eccCurves = ['secp256r1']
-        settings.defaultCurve = 'secp256r1'
-        settings.keyShares = ['secp256r1']
+    if family!='dhe':
+        group = 'secp256r1' if family=='p256' else 'x25519'
+        settings.eccCurves = [group]
+        settings.defaultCurve = group
+        settings.keyShares = [group]
         settings.ec_point_formats = [0]
     settings.rsaSigHashes = ['sha256']
     settings.rsaSchemes = ['pkcs1']
@@ -69,16 +70,27 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
 
     def observe_generated_exponent(kex):
         # Passive observation only: invoke the library's unmodified random
-        # sampler and return exactly the sampled integer to the TLS endpoint.
+        # sampler and return exactly the sampled object to the TLS endpoint.
         private = original(kex)
         if family=='dhe':
             p,g = kex.prime,kex.generator
             observed_keys.append({'p':p,'g':g,'y':pow(g,private,p),'order':(p-1)//2,'x':private})
-        else:
+        elif family=='p256':
             if kex.group!=23:
                 raise RuntimeError('Observer expected the P-256 named group')
             observed_keys.append({'curve':'secp256r1','public_point':bytes(kex.calc_public_value(private,'uncompressed')),
                                   'x':private.privkey.secret_multiplier})
+        else:
+            if kex.group!=29 or len(private)!=32:
+                raise RuntimeError('Observer expected an X25519 random private encoding')
+            # tlslite clamps bytearrays in place during multiplication. Keep
+            # the original bytes and compute on a copy so the observer cannot
+            # change even the unused bits of the endpoint's random return.
+            scalar = bytes(private)
+            public = bytes(kex.calc_public_value(bytearray(scalar)))
+            if bytes(private)!=scalar:
+                raise RuntimeError('Observer changed the endpoint random private encoding')
+            observed_keys.append({'curve':'x25519','public_point':public,'scalar':scalar})
         return private
 
     def serve():
@@ -132,7 +144,7 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
     try:
         thread.start()
         command = [openssl,'s_client','-connect',f'127.0.0.1:{port}','-servername','vault.qsploit.test',
-                   '-tls1_2','-cipher',openssl_cipher,'-groups','ffdhe2048' if family=='dhe' else 'P-256','-sigalgs','rsa_pkcs1_sha256',
+                   '-tls1_2','-cipher',openssl_cipher,'-groups',{'dhe':'ffdhe2048','p256':'P-256','x25519':'X25519'}[family],'-sigalgs','rsa_pkcs1_sha256',
                    '-alpn','http/1.1','-quiet','-no_ign_eof','-no_ticket','-keylogfile',str(keylog)]
         if not ems:
             command += ['-no_ems']
@@ -185,11 +197,19 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
         if (key['g'],key['p'])!=RFC7919_GROUPS[0] or not 1<key['x']<key['order'] or pow(key['g'],key['x'],key['p'])!=key['y']:
             raise RuntimeError('Invalid observed FFDHE2048 key')
         public = {field:format(key[field],'x') for field in ('p','g','y','order')}
-    else:
+    elif family=='p256':
         independent_public = ec.derive_private_key(key['x'],ec.SECP256R1()).public_key().public_bytes(
             serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint)
         if len(key['public_point'])!=65 or key['public_point'][0]!=4 or independent_public!=key['public_point']:
             raise RuntimeError('Invalid observed P-256 key')
+        public = {'curve':key['curve'],'public_point':key['public_point'].hex()}
+    else:
+        independent_public = x25519.X25519PrivateKey.from_private_bytes(key['scalar']).public_key().public_bytes(
+            serialization.Encoding.Raw,serialization.PublicFormat.Raw)
+        if len(key['public_point'])!=32 or independent_public!=key['public_point']:
+            raise RuntimeError('Invalid observed X25519 key')
+        if int.from_bytes(key['public_point'],'little')>=2**255-19:
+            raise RuntimeError('Expected a canonical X25519 public encoding')
         public = {'curve':key['curve'],'public_point':key['public_point'].hex()}
     details.update(c2s_base64=b64(bytes(server_received)),s2c_base64=b64(bytes(client_received)),
                    mode=family+('_ems' if ems else '_noems'),prf_hash='sha256' if cipher_name=='aes128gcm' else 'sha384',
@@ -214,7 +234,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--interface',default='lo0' if sys.platform=='darwin' else 'lo')
     parser.add_argument('--openssl',default=shutil.which('openssl') or 'openssl')
-    parser.add_argument('--family',choices=['dhe','p256'],default='dhe',help='Generate only this family, preserving other captures')
+    parser.add_argument('--family',choices=['dhe','p256','x25519'],default='dhe',help='Generate only this family, preserving other captures')
     args = parser.parse_args()
     if tlslite.__version__ != '0.8.2':
         raise RuntimeError('The development observer is verified against tlslite-ng 0.8.2 only')
@@ -223,8 +243,8 @@ def main():
              ('tls12-dhe-aes256-ems','aes256gcm',True,True),
              ('tls12-dhe-aes256-noems','aes256gcm',False,True),
              ('tls12-dhe-unknown','aes128gcm',True,False)]
-    if args.family=='p256':
-        cases = [(name.replace('tls12-dhe-','tls12-ecdhe-p256-'),cipher,ems,known) for name,cipher,ems,known in cases]
+    if args.family!='dhe':
+        cases = [(name.replace('tls12-dhe-','tls12-ecdhe-'+args.family+'-'),cipher,ems,known) for name,cipher,ems,known in cases]
     names = {name+'.pcap' for name,_,_,_ in cases}
     manifest = json.loads((FIXTURES/'manifest.json').read_text())
     preserved = {record['file']:sha((FIXTURES/record['file']).read_bytes())
@@ -261,7 +281,7 @@ def main():
                       'recovery_registry_key':lookup,'recovery_secret_bundled':known,**details,'tcpdump_log':capture.log}
             (temp/(name+'.expected.json')).write_text(json.dumps(record,indent=2)+'\n')
             if known:
-                registry[lookup] = {'x':format(key['x'],'x')}
+                registry[lookup] = {'scalar':key['scalar'].hex()} if args.family=='x25519' else {'x':format(key['x'],'x')}
             generated.append({'file':path.name,'sha256':record['sha256'],'size':path.stat().st_size,'sessions':1,
                               'mode':record['mode'],'cipher_suite_id':record['cipher_suite_id'],
                               'recovery_secret_bundled':known,**packet_stats(path)})

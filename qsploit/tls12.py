@@ -11,12 +11,12 @@ import hmac
 import math
 
 from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, x25519
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from .groups import P256_ORDER, validate_p256_point
-from .models import ApplicationStreams, ECDLogSecret, FFDLogSecret, ParsedTLS, QSploitError, RecoveredSecret, RSAFactors
+from .groups import P256_ORDER, normalize_x25519_point, validate_p256_point, validate_x25519_point
+from .models import ApplicationStreams, ECDLogSecret, FFDLogSecret, ParsedTLS, QSploitError, RecoveredSecret, RSAFactors, X25519Secret
 from .tls import MAX_HANDSHAKE_BYTES, problem_for
 
 
@@ -81,6 +81,22 @@ def recover_premaster(session: ParsedTLS, factors: RecoveredSecret) -> bytes:
     if session.kex == "ecdhe":
         key = session.ecdhe
         assert key is not None
+        if key.group == 29:
+            if not isinstance(factors, X25519Secret):
+                raise QSploitError("INVALID_RECOVERY_RESULT", "X25519 recovery requires a byte-encoded private scalar result.")
+            if type(factors.scalar) is not bytes or len(factors.scalar) != 32:
+                raise QSploitError("INVALID_DLOG_RESULT", "The recovered X25519 scalar must have exactly 32 bytes.")
+            private = x25519.X25519PrivateKey.from_private_bytes(factors.scalar)
+            public = private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            if not hmac.compare_digest(public, normalize_x25519_point(key.server_public)):
+                raise QSploitError("INVALID_DLOG_RESULT", "The recovered scalar does not reproduce the captured server X25519 share.")
+            try:
+                shared = private.exchange(validate_x25519_point(key.client_public))
+            except ValueError:
+                raise QSploitError("INVALID_PREMASTER", "The X25519 exchange produced an invalid all-zero secret.") from None
+            if shared == bytes(32):
+                raise QSploitError("INVALID_PREMASTER", "The X25519 exchange produced an all-zero secret.")
+            return shared  # fixed 32-byte little-endian RFC 7748 output
         if not isinstance(factors, ECDLogSecret):
             raise QSploitError("INVALID_RECOVERY_RESULT", "P-256 ECDHE recovery requires a verified scalar result.")
         if type(factors.x) is not int or not 1 <= factors.x < P256_ORDER:

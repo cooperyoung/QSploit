@@ -15,7 +15,7 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | Static RSA | AES-256-GCM / SHA-384 | **Verified**: EMS and non-EMS; RSA-2048 factors |
 | TLS 1.2 | DHE_RSA, ffdhe2048 | AES-128/256-GCM | **Verified**: EMS and non-EMS; finite-field exponent |
 | TLS 1.2 | ECDHE_RSA P-256 | AES-128/256-GCM | **Verified**: EMS and non-EMS; EC scalar |
-| TLS 1.2 | ECDHE_RSA X25519 | AES-GCM | Next extension |
+| TLS 1.2 | ECDHE_RSA X25519 | AES-128/256-GCM | **Verified**: EMS and non-EMS; RFC 7748 private input |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-GCM | Detection only; planned after TLS 1.2 ECDHE |
 | TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
@@ -82,3 +82,20 @@ record tags and valid-tag incorrect Finished messages. The original 38 recovery
 boundary tests are readable again after macOS restored the offloaded file; they
 pass after the internal `Recovery.secret` field rename. No EC quantum solver is
 claimed. X25519 remains a separate next step at this checkpoint.
+
+## Extension 3b: ECDHE / X25519
+
+Four genuine AES-128/256-GCM, EMS/non-EMS captures pass the same complete API
+workflow. A fifth unknown-share fixture has no retained recovery material. The
+recovery result is a distinct 32-byte RFC 7748 private input, not a P-256 integer.
+Public u-coordinates are decoded little-endian, their top bit is masked, and
+noncanonical field encodings are normalized. Private clamping is performed by
+X25519 itself; low-order/all-zero exchanges are rejected. The recovered public
+share is checked before local shared-secret computation.
+
+Tests include RFC 7748 published vectors, every clamping-bit combination,
+noncanonical public aliases, little-endian reversal, malformed and low-order
+points, wrong recovery types/scalars, every protected-record corruption and
+valid-tag incorrect Finished messages. Full regression: **503 passed, 1 browser
+test skipped** before the final 32 X25519 classical tests were added; the final
+64-case X25519/P-256 classical run also passed after framing hardening.
