@@ -71,13 +71,16 @@ MESSAGES = {
     "TCP_GAP": "Missing TCP bytes prevent trustworthy decryption.",
     "TCP_OVERLAP_CONFLICT": "Overlapping TCP packets contain conflicting bytes.",
     "INCOMPLETE_HANDSHAKE": "Required handshake messages are missing.",
-    "UNSUPPORTED_TLS_VERSION": "Decryption currently supports TLS 1.2 only.",
+    "UNSUPPORTED_TLS_VERSION": "This TLS version has no implemented decryptor.",
     "UNSUPPORTED_CIPHER": "This cipher suite has no implemented decryptor.",
     "UNSUPPORTED_KEX": "This negotiated key exchange needs a different recovery algorithm.",
     "RESUMPTION_UNSUPPORTED": "Resumed sessions require secrets from the original handshake.",
     "CLIENT_AUTH_UNSUPPORTED": "Client-certificate authentication is outside this version's scope.",
     "RENEGOTIATION_UNSUPPORTED": "Renegotiated sessions are not supported.",
     "IP_FRAGMENT_UNSUPPORTED": "Fragmented IP traffic is not reassembled.",
+    "PSK_UNSUPPORTED": "This handshake requires a pre-shared secret unavailable from its public key exchange.",
+    "EARLY_DATA_UNSUPPORTED": "TLS 1.3 early data requires its original pre-shared secret and is not decrypted.",
+    "HRR_UNSUPPORTED": "This HelloRetryRequest handshake is recognized but not yet supported for decryption.",
 }
 
 
@@ -174,7 +177,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/config")
     async def config():
-        return {"mode": "demo" if settings.backend == "fixture" else "disabled" if settings.backend == "disabled" else "quantum", "backend":settings.backend, "demo_delay_seconds":settings.demo_delay_seconds, "timing_kind":"illustrative_delay" if settings.backend == "fixture" else "actual_job_status", "timing_assumptions":"Presentation delay only; not an estimate of quantum runtime.", "target":settings.target, "shots":settings.shots,"max_attempts":settings.max_attempts,"max_upload_bytes":settings.max_upload_bytes}
+        return {"mode": "demo" if settings.backend == "fixture" else "disabled" if settings.backend == "disabled" else "quantum", "backend":settings.backend, "demo_delay_seconds":settings.demo_delay_seconds, "timing_kind":"illustrative_delay" if settings.backend == "fixture" else "actual_job_status", "timing_assumptions":"Presentation delay only; not an estimate of quantum runtime.", "target":settings.target, "shots":settings.shots,"max_attempts":settings.max_attempts,"max_upload_bytes":settings.max_upload_bytes,"protocol_tour_available":(ROOT / "demo" / "protocol-tour.pcap").is_file()}
 
     @app.get("/api/capabilities", response_model=list[Capability])
     async def capabilities():
@@ -185,6 +188,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path = ROOT / "demo" / "tls12-rsa-ems.pcap"
         if not path.is_file():
             raise QSploitError("NOT_FOUND", "Bundled capture is missing.")
+        return FileResponse(path, media_type="application/octet-stream", filename=path.name)
+
+    @app.get("/api/protocol-tour")
+    async def protocol_tour():
+        path = ROOT / "demo" / "protocol-tour.pcap"
+        if not path.is_file():
+            raise QSploitError("NOT_FOUND", "Protocol tour capture is not packaged in this build.")
         return FileResponse(path, media_type="application/octet-stream", filename=path.name)
 
     @app.post("/api/captures", response_model=CaptureView, status_code=201)
@@ -254,10 +264,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 job.distribution_kind, job.actual_shots = m.kind, m.actual_shots
             if selected:
                 job.stage = "authenticating_tls"
-                streams = await asyncio.to_thread(decrypt_tls12, selected, result.secret)
+                if selected.tls_version == 0x304:
+                    from .tls13 import decrypt_tls13
+                    streams = await asyncio.to_thread(decrypt_tls13, selected, result.secret)
+                else:
+                    streams = await asyncio.to_thread(decrypt_tls12, selected, result.secret)
                 job.client_finished_verified, job.server_finished_verified, job.authenticated_records = streams.client_finished_verified, streams.server_finished_verified, streams.authenticated_records
                 job.warnings.extend(issue(w) for w in streams.warnings)
                 job.stage = "parsing_http"
+                if selected.tls_version == 0x304:
+                    selected = replace(selected, alpn=streams.negotiated_alpn, authentication=streams.authentication)
+                    state.sessions[selected.id] = selected
                 try:
                     exchanges = await asyncio.to_thread(parse_http, streams, selected.alpn)
                 except QSploitError as exc:

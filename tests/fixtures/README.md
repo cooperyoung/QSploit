@@ -20,6 +20,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls12-ecdhe-x25519-aes128-ems.pcap`, `tls12-ecdhe-x25519-aes128-noems.pcap` | Genuine ECDHE_RSA/X25519 with AES-128-GCM/SHA-256, both schedules |
 | `tls12-ecdhe-x25519-aes256-ems.pcap`, `tls12-ecdhe-x25519-aes256-noems.pcap` | Genuine ECDHE_RSA/X25519 with AES-256-GCM/SHA-384, both schedules |
 | `tls12-ecdhe-x25519-unknown.pcap` | Fresh X25519 server share whose private encoding is deliberately not retained |
+| `tls13-p256-aes128.pcap` | Genuine TLS 1.3 P-256, AES-128-GCM/SHA-256, RSA-PSS server CertificateVerify, one NewSessionTicket and two HTTP exchanges |
+| `tls13-p256-unknown.pcap` | Same TLS 1.3 family with a fresh server public point whose private scalar is not retained |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -78,3 +80,13 @@ The X25519 fixtures use the same independent TLS 1.2 endpoints, RSA signature an
 ```
 
 The EC registry adds canonical `x25519:<32-byte-public-u-hex>` keys and `{ "scalar": "32-byte-private-encoding-hex" }` values, preserving every P-256 entry and every earlier capture. These are RFC 7748 private input encodings, not ordinary big-endian integer exponents; the X25519 primitive applies clamping and little-endian interpretation. Only four known fixtures are retained, and the unknown-share capture must fail lookup. The application still derives the actual shared secret with the captured peer share and verifies all protected records and both Finished messages.
+
+## TLS 1.3 endpoint evidence
+
+The initial TLS 1.3 fixtures force P-256 and `TLS_AES_128_GCM_SHA256` (`0x1301`), with RSA-PSS SHA-256 CertificateVerify (`0x0804`). They contain complete fresh handshakes, no selected PSK, no early data, no client authentication and no HelloRetryRequest. The server issues one genuine NewSessionTicket using a temporary random ticket key; the generator never resumes it. The same passive P-256 key observer records only the server's independently random scalar for known-test recovery.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family p256 --tls13
+```
+
+OpenSSL's test-only keylog supplies both handshake traffic secrets, both application traffic secrets and the exporter secret in `tls13_secrets`. The application traffic secrets are independently checked against tlslite's session values before any files are published. The server's TLS 1.3 master secret is separately recorded as `tls13_master_secret_hex`; it is not mislabeled as a TLS 1.2 `CLIENT_RANDOM` master-secret oracle. Both endpoints also independently record and compare exact application bytes. Temporary endpoint keylogs, certificate private keys and ticket keys are deleted. The runtime registry contains only the known server scalar; none of these traffic secrets or expected HTTP bytes enters the runtime package.

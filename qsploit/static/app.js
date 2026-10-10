@@ -71,7 +71,7 @@ function showNotice(element, messages) {
 }
 function busy(on) {
   state.busy = on;
-  for (const id of ["#recover", "#clear", "#replace", "#load-demo"])
+  for (const id of ["#recover", "#clear", "#replace", "#load-demo", "#load-tour"])
     $(id).disabled = on;
   $("#file").disabled = on;
   $("#run-quantum").disabled = on || state.quantumBusy || !state.aer;
@@ -116,6 +116,15 @@ $("#load-demo").onclick = async () => {
     if (!r.ok) throw new Error("Bundled capture unavailable.");
     const b = await r.blob();
     await upload(new File([b], "qsploit-demo.pcap"));
+  } catch (e) {
+    error(e);
+  }
+};
+$("#load-tour").onclick = async () => {
+  try {
+    const r = await fetch("/api/protocol-tour");
+    if (!r.ok) throw new Error("Protocol tour unavailable in this build.");
+    await upload(new File([await r.blob()], "protocol-tour.pcap"));
   } catch (e) {
     error(e);
   }
@@ -251,8 +260,10 @@ function renderDetail() {
     ["Key exchange", kex(s.key_exchange)],
     ["Public key", s.rsa ? `${s.rsa.bits}-bit RSA` : s.selected_group_name || "—"],
     [
-      "Master secret",
-      s.ems === true
+      "Key schedule",
+      s.tls_version === "1.3"
+        ? "TLS 1.3 HKDF"
+        : s.ems === true
         ? "Extended (EMS)"
         : s.ems === false
           ? "Standard"
@@ -303,6 +314,7 @@ const stages = {
   illustrative_demo_delay: "Demonstration recovery in progress",
   verifying_factors: "Verifying the recovered factors",
   matching_test_problem: "Matching the public test problem",
+  matching_test_public_problem: "Matching the public test problem",
   verifying_secret: "Verifying the recovered discrete logarithm",
   verifying_discrete_log: "Verifying the recovered discrete logarithm",
   authenticating_tls: "Deriving keys and authenticating TLS",
@@ -615,6 +627,7 @@ $("#run-quantum").onclick = async () => {
 async function init() {
   try {
     state.config = await api("/api/config");
+    $("#load-tour").hidden = !state.config.protocol_tour_available;
     const banner = $("#mode-banner");
     banner.replaceChildren(
       node(

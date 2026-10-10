@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Development-only genuine TLS 1.2 DHE/ECDHE_RSA captures; no QSploit imports.
+"""Development-only genuine TLS DHE/ECDHE captures; no QSploit imports.
 
 A tlslite-ng 0.8.2 server and independent OpenSSL client use their normal RNGs
 and TLS wire implementations. A temporary observer records the server's random
@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 from pathlib import Path
 import platform
 import shutil
@@ -33,7 +34,7 @@ from make_fixtures import (DEMO, FIXTURES, PacketCapture, b64, http_payloads,
                            identity, listener, packet_stats, sha)
 
 
-def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, family='dhe'):
+def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, family='dhe', tls13=False):
     requests,responses,body_oracles = http_payloads()
     server_received,server_sent,client_received = bytearray(),bytearray(),bytearray()
     observed_keys,errors = [],[]
@@ -43,10 +44,14 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
                        else {'aes128gcm':0xc02f,'aes256gcm':0xc030})[cipher_name]
     openssl_cipher = ('DHE' if family=='dhe' else 'ECDHE')+'-RSA-'+{
         'aes128gcm':'AES128-GCM-SHA256','aes256gcm':'AES256-GCM-SHA384'}[cipher_name]
+    if tls13:
+        expected_cipher = 0x1301
+        openssl_cipher = 'TLS_AES_128_GCM_SHA256'
     keylog = temp/f'{port}-openssl.keys'
     settings = HandshakeSettings()
-    settings.minVersion = settings.maxVersion = (3,3)
-    settings.versions = [(3,3)]
+    version = (3,4) if tls13 else (3,3)
+    settings.minVersion = settings.maxVersion = version
+    settings.versions = [version]
     settings.keyExchangeNames = ['dhe_rsa' if family=='dhe' else 'ecdhe_rsa']
     settings.cipherNames = [cipher_name]
     settings.macNames = ['aead']
@@ -61,10 +66,11 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
         settings.keyShares = [group]
         settings.ec_point_formats = [0]
     settings.rsaSigHashes = ['sha256']
-    settings.rsaSchemes = ['pkcs1']
+    settings.rsaSchemes = ['pss' if tls13 else 'pkcs1']
     settings.useExtendedMasterSecret = ems
     settings.requireExtendedMasterSecret = ems
-    settings.ticketKeys = []
+    settings.ticketKeys = [bytearray(os.urandom(32))] if tls13 else []
+    settings.ticket_count = 1 if tls13 else 0
     kex_class = FFDHKeyExchange if family=='dhe' else ECDHKeyExchange
     original = kex_class.get_random_private_key
 
@@ -102,16 +108,21 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
             conn.closeSocket = False
             conn.handshakeServer(certChain=certificate,privateKey=private_key,settings=settings,
                                  alpn=[bytearray(b'http/1.1')])
-            if conn.version != (3,3) or conn.session.cipherSuite != expected_cipher:
+            if conn.version != version or conn.session.cipherSuite != expected_cipher:
                 raise RuntimeError('Endpoint negotiated an unexpected TLS family')
-            if conn.extendedMasterSecret is not ems:
+            if not tls13 and conn.extendedMasterSecret is not ems:
                 raise RuntimeError('Endpoint negotiated unexpected EMS state')
             details.update(client={'ip':peer[0],'port':peer[1]},server={'ip':'127.0.0.1','port':port},
-                           version='TLSv1.2',cipher=openssl_cipher,cipher_suite_id=conn.session.cipherSuite,
-                           alpn=bytes(conn.session.appProto).decode(),ems=conn.extendedMasterSecret,
-                           client_random_hex=bytes(conn._clientRandom).hex(),
-                           master_secret_hex=bytes(conn.session.masterSecret).hex(),
-                           server_key_exchange_signature_scheme=0x0401)
+                           version='TLSv1.3' if tls13 else 'TLSv1.2',cipher=openssl_cipher,cipher_suite_id=conn.session.cipherSuite,
+                           alpn=bytes(conn.session.appProto).decode(),ems=None if tls13 else conn.extendedMasterSecret,
+                           client_random_hex=bytes(conn._clientRandom).hex())
+            if tls13:
+                details.update(tls13_master_secret_hex=bytes(conn.session.masterSecret).hex(),
+                               client_application_traffic_secret_0_hex=bytes(conn.session.cl_app_secret).hex(),
+                               server_application_traffic_secret_0_hex=bytes(conn.session.sr_app_secret).hex(),
+                               certificate_verify_signature_scheme=0x0804,new_session_ticket_count=1)
+            else:
+                details.update(master_secret_hex=bytes(conn.session.masterSecret).hex(),server_key_exchange_signature_scheme=0x0401)
             for request,response in zip(requests,responses):
                 incoming = bytearray()
                 while len(incoming)<len(request):
@@ -144,9 +155,13 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
     try:
         thread.start()
         command = [openssl,'s_client','-connect',f'127.0.0.1:{port}','-servername','vault.qsploit.test',
-                   '-tls1_2','-cipher',openssl_cipher,'-groups',{'dhe':'ffdhe2048','p256':'P-256','x25519':'X25519'}[family],'-sigalgs','rsa_pkcs1_sha256',
-                   '-alpn','http/1.1','-quiet','-no_ign_eof','-no_ticket','-keylogfile',str(keylog)]
-        if not ems:
+                   '-tls1_3' if tls13 else '-tls1_2','-ciphersuites' if tls13 else '-cipher',openssl_cipher,
+                   '-groups',{'dhe':'ffdhe2048','p256':'P-256','x25519':'X25519'}[family],
+                   '-sigalgs','rsa_pss_rsae_sha256' if tls13 else 'rsa_pkcs1_sha256',
+                   '-alpn','http/1.1','-quiet','-no_ign_eof','-keylogfile',str(keylog)]
+        if not tls13:
+            command += ['-no_ticket']
+        if not tls13 and not ems:
             command += ['-no_ems']
         process = subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         complete = threading.Event()
@@ -184,12 +199,32 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
             process.wait(timeout=5)
     if bytes(client_received) != b''.join(responses):
         raise RuntimeError('OpenSSL-received bytes differ from server-sent bytes')
-    key_lines = [line for line in keylog.read_text().splitlines() if line.startswith('CLIENT_RANDOM ')]
-    if len(key_lines) != 1:
-        raise RuntimeError('Missing independent OpenSSL master-secret oracle')
-    _,client_random,master_secret = key_lines[0].split()
-    if client_random.lower() != details['client_random_hex'] or master_secret.lower() != details['master_secret_hex']:
-        raise RuntimeError('Independent OpenSSL/tlslite master-secret oracles disagree')
+    key_lines = [line.split() for line in keylog.read_text().splitlines() if line and not line.startswith('#')]
+    if tls13:
+        required = {'CLIENT_HANDSHAKE_TRAFFIC_SECRET','SERVER_HANDSHAKE_TRAFFIC_SECRET',
+                    'CLIENT_TRAFFIC_SECRET_0','SERVER_TRAFFIC_SECRET_0','EXPORTER_SECRET'}
+        if not required <= {fields[0] for fields in key_lines}:
+            raise RuntimeError('Missing independent OpenSSL TLS 1.3 traffic-secret oracle')
+        # tlslite's server _clientRandom is populated only on its TLS 1.2
+        # return path. Use the independent peer log's connection identifier;
+        # the matched application secrets below bind it to this handshake.
+        randoms = {fields[1].lower() for fields in key_lines}
+        if len(randoms)!=1 or len(bytes.fromhex(next(iter(randoms))))!=32:
+            raise RuntimeError('Independent OpenSSL keylog mixes TLS connections')
+        details['client_random_hex'] = next(iter(randoms))
+        oracles = {label:secret.lower() for label,_,secret in key_lines}
+        for side in ('client','server'):
+            if oracles[side.upper()+'_TRAFFIC_SECRET_0']!=details[side+'_application_traffic_secret_0_hex']:
+                raise RuntimeError('Independent OpenSSL/tlslite TLS 1.3 application-secret oracles disagree')
+            details[side+'_handshake_traffic_secret_hex'] = oracles[side.upper()+'_HANDSHAKE_TRAFFIC_SECRET']
+        details['tls13_secrets'] = oracles
+    else:
+        key_lines = [fields for fields in key_lines if fields[0]=='CLIENT_RANDOM']
+        if len(key_lines) != 1:
+            raise RuntimeError('Missing independent OpenSSL master-secret oracle')
+        _,client_random,master_secret = key_lines[0]
+        if client_random.lower() != details['client_random_hex'] or master_secret.lower() != details['master_secret_hex']:
+            raise RuntimeError('Independent OpenSSL/tlslite master-secret oracles disagree')
     if len(observed_keys) != 1:
         raise RuntimeError('Expected one independently random server ephemeral exponent')
     key = observed_keys[0]
@@ -212,12 +247,13 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
             raise RuntimeError('Expected a canonical X25519 public encoding')
         public = {'curve':key['curve'],'public_point':key['public_point'].hex()}
     details.update(c2s_base64=b64(bytes(server_received)),s2c_base64=b64(bytes(client_received)),
-                   mode=family+('_ems' if ems else '_noems'),prf_hash='sha256' if cipher_name=='aes128gcm' else 'sha384',
+                   mode='tls13_'+family if tls13 else family+('_ems' if ems else '_noems'),prf_hash='sha256' if cipher_name=='aes128gcm' else 'sha384',
                    public_problem=public,
                    endpoint_observations={'server_received_sha256':sha(bytes(server_received)),
                         'server_sent_sha256':sha(bytes(server_sent)),'client_received_sha256':sha(bytes(client_received)),
                         'client_sent_sha256':sha(b''.join(requests)),
-                        'master_secret_oracle':'independent OpenSSL CLIENT_RANDOM keylog matched tlslite server session master; generation-only logs deleted',
+                        'master_secret_oracle':('independent OpenSSL TLS 1.3 keylog; both application traffic secrets matched tlslite server session; generation-only logs deleted' if tls13 else
+                                                'independent OpenSSL CLIENT_RANDOM keylog matched tlslite server session master; generation-only logs deleted'),
                         'recovery_oracle':f'passive observer of original tlslite-ng {kex_class.__name__}.get_random_private_key; RNG and returned exponent unchanged'},
                    exchanges=[{'request_base64':b64(a),'response_base64':b64(b)} for a,b in zip(requests,responses)],**body_oracles)
     return details,key
@@ -235,7 +271,10 @@ def main():
     parser.add_argument('--interface',default='lo0' if sys.platform=='darwin' else 'lo')
     parser.add_argument('--openssl',default=shutil.which('openssl') or 'openssl')
     parser.add_argument('--family',choices=['dhe','p256','x25519'],default='dhe',help='Generate only this family, preserving other captures')
+    parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 P-256 AES-128 baseline and unknown-share case')
     args = parser.parse_args()
+    if args.tls13 and args.family!='p256':
+        parser.error('The current TLS 1.3 capture gate is P-256 only')
     if tlslite.__version__ != '0.8.2':
         raise RuntimeError('The development observer is verified against tlslite-ng 0.8.2 only')
     cases = [('tls12-dhe-aes128-ems','aes128gcm',True,True),
@@ -245,6 +284,8 @@ def main():
              ('tls12-dhe-unknown','aes128gcm',True,False)]
     if args.family!='dhe':
         cases = [(name.replace('tls12-dhe-','tls12-ecdhe-'+args.family+'-'),cipher,ems,known) for name,cipher,ems,known in cases]
+    if args.tls13:
+        cases = [('tls13-p256-aes128','aes128gcm',True,True),('tls13-p256-unknown','aes128gcm',True,False)]
     names = {name+'.pcap' for name,_,_,_ in cases}
     manifest = json.loads((FIXTURES/'manifest.json').read_text())
     preserved = {record['file']:sha((FIXTURES/record['file']).read_bytes())
@@ -275,7 +316,7 @@ def main():
             sock = listener()
             path = temp/(name+'.pcap')
             with PacketCapture(path,args.interface,[sock.getsockname()[1]]) as capture:
-                details,key = exchange(sock,chain,tls_private,temp,cipher,ems,args.openssl,args.family)
+                details,key = exchange(sock,chain,tls_private,temp,cipher,ems,args.openssl,args.family,args.tls13)
             lookup = registry_key(details['public_problem'])
             record = {'capture':path.name,'sha256':sha(path.read_bytes()),'generator':generator,
                       'recovery_registry_key':lookup,'recovery_secret_bundled':known,**details,'tcpdump_log':capture.log}
@@ -285,7 +326,8 @@ def main():
             generated.append({'file':path.name,'sha256':record['sha256'],'size':path.stat().st_size,'sessions':1,
                               'mode':record['mode'],'cipher_suite_id':record['cipher_suite_id'],
                               'recovery_secret_bundled':known,**packet_stats(path)})
-            print(f'Generated {path.name}: {record["cipher"]}; EMS={ems}; independent master and plaintext matched',flush=True)
+            schedule = 'TLS 1.3' if args.tls13 else f'EMS={ems}'
+            print(f'Generated {path.name}: {record["cipher"]}; {schedule}; independent endpoint secrets and plaintext matched',flush=True)
         for name,_,_,known in cases:
             shutil.copyfile(temp/(name+'.pcap'),FIXTURES/(name+'.pcap'))
             shutil.copyfile(temp/(name+'.expected.json'),FIXTURES/(name+'.expected.json'))

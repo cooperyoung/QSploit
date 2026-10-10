@@ -195,6 +195,8 @@ class ApplicationStreams:
     client_close_notify: bool
     server_close_notify: bool
     warnings: tuple[str, ...]
+    negotiated_alpn: str | None = None
+    authentication: str | None = None
 
 
 from typing import Literal

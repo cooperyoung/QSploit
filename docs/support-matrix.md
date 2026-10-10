@@ -16,7 +16,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | DHE_RSA, ffdhe2048 | AES-128/256-GCM | **Verified**: EMS and non-EMS; finite-field exponent |
 | TLS 1.2 | ECDHE_RSA P-256 | AES-128/256-GCM | **Verified**: EMS and non-EMS; EC scalar |
 | TLS 1.2 | ECDHE_RSA X25519 | AES-128/256-GCM | **Verified**: EMS and non-EMS; RFC 7748 private input |
-| TLS 1.3 | ECDHE P-256, X25519 | AES-GCM | Detection only; planned after TLS 1.2 ECDHE |
+| TLS 1.3 | ECDHE P-256 | AES-128-GCM / SHA-256 | **Verified**: full handshake, encrypted ALPN, session ticket |
+| TLS 1.3 | ECDHE X25519; AES-256 combinations | AES-GCM | Next protocol gates |
 | TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
@@ -99,3 +100,19 @@ points, wrong recovery types/scalars, every protected-record corruption and
 valid-tag incorrect Finished messages. Full regression: **503 passed, 1 browser
 test skipped** before the final 32 X25519 classical tests were added; the final
 64-case X25519/P-256 classical run also passed after framing hardening.
+
+## Extension 4a: TLS 1.3 / P-256 / AES-128-GCM
+
+A genuine OpenSSL ↔ tlslite-ng capture passes the upload-to-inspector workflow,
+with RSA-PSS CertificateVerify, both Finished messages, all 20 encrypted records,
+and exact independently observed HTTP bytes. The local engine implements the
+TLS 1.3 HKDF schedule, separate handshake/application epochs and directional
+sequence numbers, encrypted ALPN, padding, NewSessionTicket, and bounded
+KeyUpdate processing. Published RFC 8448 vectors independently validate the
+schedule, keys, Finished and record authentication. KeyUpdate is currently
+validated by constructed authenticated records, not a captured endpoint update.
+
+The isolated application cannot read expected-output files, endpoint key logs,
+private keys or fixture-generator code; its recovered plaintext still matches
+the independent oracle. HRR, PSK, early data and client authentication remain
+explicit unsupported cases. Certificate authentication currently supports RSA-PSS.

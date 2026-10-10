@@ -22,7 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def deny_oracles(event, args):
     if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
         path = os.fsdecode(args[0])
-        if "/tests/" in path or path.startswith("tests/") or path.endswith((".expected.json", ".pem", ".keylog", ".key")):
+        if ("/tests/" in path or path.startswith("tests/")
+                or "/scripts/make_" in path or path.startswith("scripts/make_")
+                or path.endswith((".expected.json", ".pem", ".keylog", ".key"))):
             raise PermissionError("Test oracles and endpoint key files are denied in the application process")
 
 
@@ -33,13 +35,13 @@ if os.environ.get("QSPLOIT_ISOLATION_PROOF") == "1":
 def child(name):
     from fastapi.testclient import TestClient
     from qsploit.app import Settings, create_app
-    forbidden = ROOT / "tests/fixtures/tls12-rsa-ems.expected.json"
-    try:
-        forbidden.read_bytes()
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError("Audit denial not active")
+    for forbidden in (ROOT / "tests/fixtures/tls12-rsa-ems.expected.json", ROOT / "scripts/make_fixtures.py"):
+        try:
+            forbidden.read_bytes()
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("Audit denial not active")
     with TestClient(create_app(Settings(backend="fixture", demo_delay_seconds=0)), base_url="http://127.0.0.1:8000") as client:
         upload = client.post("/api/captures", headers={"X-QSploit":"1"}, content=(ROOT / "qsploit/demo" / f"{name}.pcap").read_bytes())
         upload.raise_for_status()
