@@ -526,6 +526,28 @@
       "recovery_secret_bundled": false,
       "packet_count": 52,
       "linktype": 0
+    },
+    {
+      "file": "tls13-dhe-chacha.pcap",
+      "sha256": "f42357e954bcdafaa95cfe3e1c4d85c882f5cc6b81dd83a801b5c4aad9bbb308",
+      "size": 58386,
+      "sessions": 1,
+      "mode": "tls13_dhe",
+      "cipher_suite_id": 4867,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls13-dhe-chacha-unknown.pcap",
+      "sha256": "5e00826a6a1e4bfcf5dfee15ae3dfc01a1b00f91a9c2ad2197df195cc4992355",
+      "size": 58530,
+      "sessions": 1,
+      "mode": "tls13_dhe",
+      "cipher_suite_id": 4867,
+      "recovery_secret_bundled": false,
+      "packet_count": 52,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

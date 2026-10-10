@@ -22,8 +22,16 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | ECDHE_RSA P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
 | TLS 1.3 | ECDHE P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: full handshake and exact HTTP |
 | TLS 1.3 | FFDHE2048 | AES-128/256-GCM | **Verified**: full handshake, fixed-width shared secret and exact HTTP |
-| TLS 1.3 | FFDHE2048 | ChaCha20-Poly1305 | Pending the final sequential gate |
+| TLS 1.3 | FFDHE2048 | ChaCha20-Poly1305 | **Verified**: full handshake and exact HTTP |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
+
+Detection-only entries include TLS 1.0/1.1, static-RSA AES-CBC suites, ECDHE_ECDSA
+AES-GCM suites, PSK/DHE_PSK, P-384/P-521/X448, ffdhe3072–8192, ML-KEM groups,
+and the named ML-KEM/Kyber hybrids. Unknown numeric suites/groups retain their
+numeric identity and remain unsupported. These classifications are covered by
+constructed negotiation vectors, not claims of decrypted genuine captures.
+TLS 1.3 supports RSA-PSS CertificateVerify; ECDSA/EdDSA authentication is not
+implemented. TLS 1.2 ephemeral paths require RSA authentication.
 
 HTTP/1.1 reconstruction, chunked framing, bounded gzip decoding, and inert HTML
 previews are implemented. Authenticated HTTP/2 bytes are exposed with an explicit
@@ -211,3 +219,17 @@ and HTTP match. Both Finished and all 20 protected records verify through the
 ordinary worker/API and isolated runtime. The integrated FFDHE/API/provenance
 gate passed 122 tests; the classical regression passed 260. ChaCha remains gated
 until its own genuine capture validation.
+
+## Extension 6c: TLS 1.3 FFDHE2048 / ChaCha20-Poly1305
+
+The final 0x1303 known/unknown captures complete the requested protocol coverage.
+The existing padded finite-field exchange, SHA-256 HKDF and ChaCha record code
+recover exact independent secrets and HTTP; both Finished and all 20 records
+verify. The integrated FFDHE/API/provenance gate passed 155 tests, and the full
+TLS 1.3/vector regression passed 381. The isolated runtime proof also passed.
+
+Across the completed matrix there are **20 version/group/cipher combinations**:
+11 in TLS 1.2 and nine in TLS 1.3. The bundled protocol tour merges 33 genuine
+sessions and 1,634 packets without changing any packet bytes or timestamps.
+Extra sessions cover EMS/non-EMS, ticket issuance and a genuine KeyUpdate.
+See [validation.md](validation.md) for final mixed-capture and installation results.

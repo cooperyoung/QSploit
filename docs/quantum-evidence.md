@@ -4,7 +4,7 @@ Verified locally on 10 October 2026 with Python 3.12, Qiskit 2.5.2, Qiskit Aer 0
 
 ## Two separate demonstrations
 
-The main PCAP demonstration uses `method=fixture_lookup`, `execution=none`. Its exact-modulus lookup returns the isolated test RSA factors after the configured illustrative delay. It runs no quantum circuit. All subsequent TLS recovery, key derivation and authentication happen in the real classical pipeline.
+The main PCAP demonstration uses `method=fixture_lookup`, `execution=none`. Its exact-public-problem lookup returns isolated test RSA factors or the algorithm-specific ephemeral test scalar after the configured illustrative delay. It runs no quantum circuit. All subsequent TLS recovery, key derivation and authentication happen in the real classical pipeline.
 
 The separate quantum experiment executes generic modular-arithmetic order-finding circuits. It derives candidate orders from measured phase-register outcomes through integer continued fractions and bounded LCM combinations, verifies each order with modular exponentiation, then verifies the resulting nontrivial factor pair. It never reads the capture, factor fixture or expected plaintext.
 

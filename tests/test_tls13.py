@@ -26,7 +26,7 @@ def fixture(name="tls13-p256-aes128"):
     return session, secret, expected
 
 
-@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128", "tls13-p256-aes256", "tls13-x25519-aes256", "tls13-p256-chacha", "tls13-x25519-chacha", "tls13-dhe-aes128", "tls13-dhe-aes256"])
+@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128", "tls13-p256-aes256", "tls13-x25519-aes256", "tls13-p256-chacha", "tls13-x25519-chacha", "tls13-dhe-aes128", "tls13-dhe-aes256", "tls13-dhe-chacha"])
 def tls_capture(request):
     return fixture(request.param)
 

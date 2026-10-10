@@ -12,7 +12,7 @@ from qsploit.tls import _hello, parse_tls, problem_for
 ROOT = Path(__file__).parents[1]
 
 
-@pytest.fixture(params=["tls13-dhe-aes128", "tls13-dhe-aes256"])
+@pytest.fixture(params=["tls13-dhe-aes128", "tls13-dhe-aes256", "tls13-dhe-chacha"])
 def ff_session(request):
     data = (ROOT / "tests/fixtures" / (request.param + ".pcap")).read_bytes()
     return parse_tls(read_connections(data).connections[0])

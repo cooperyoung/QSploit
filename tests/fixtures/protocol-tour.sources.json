@@ -1,6 +1,6 @@
 {
   "description": "Original genuine endpoint packets merged by capture timestamp; no packet or TLS bytes changed.",
-  "capture_sha256": "78f6066738cd832d61ea096c0ddcd632fd9c8307bb4881e17bb3578f1df65df2",
+  "capture_sha256": "3c15c71fa821a509ce4dcff75d0d63f23300251b70f77059bafb0bc9c63e9f86",
   "sessions": [
     {
       "fixture": "tls12-dhe-aes128-ems.pcap",
@@ -62,6 +62,38 @@
         "port": 50584
       },
       "cipher_suite_id": 159,
+      "tls_version": 771,
+      "key_exchange": "dhe",
+      "selected_group": 256
+    },
+    {
+      "fixture": "tls12-dhe-chacha-ems.pcap",
+      "sha256": "94c2740637b4128f38e22318024463f8ba8138a3319f37a5a6095bb389c97afd",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 53599
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 53598
+      },
+      "cipher_suite_id": 52394,
+      "tls_version": 771,
+      "key_exchange": "dhe",
+      "selected_group": 256
+    },
+    {
+      "fixture": "tls12-dhe-chacha-noems.pcap",
+      "sha256": "1a27484f2682cda43fba2db9b4fd36625219586762d4cd97ac99c24dc8c265ed",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 53602
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 53601
+      },
+      "cipher_suite_id": 52394,
       "tls_version": 771,
       "key_exchange": "dhe",
       "selected_group": 256
@@ -131,6 +163,38 @@
       "selected_group": 23
     },
     {
+      "fixture": "tls12-ecdhe-p256-chacha-ems.pcap",
+      "sha256": "5e5f5894e98b006fd2565395104e1e7b2562af07e48f9827974cd83237624dbb",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 54004
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 54002
+      },
+      "cipher_suite_id": 52392,
+      "tls_version": 771,
+      "key_exchange": "ecdhe",
+      "selected_group": 23
+    },
+    {
+      "fixture": "tls12-ecdhe-p256-chacha-noems.pcap",
+      "sha256": "5fc8ddc3711d50e5c3d06a97ad1d09d197071f1a3985462038366b0d205db0fc",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 54006
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 54005
+      },
+      "cipher_suite_id": 52392,
+      "tls_version": 771,
+      "key_exchange": "ecdhe",
+      "selected_group": 23
+    },
+    {
       "fixture": "tls12-ecdhe-x25519-aes128-ems.pcap",
       "sha256": "eedc464cc4735b04eac06e82409e0e5f0647d7c4ffdf8734d9cdc8de4ecacfc9",
       "client": {
@@ -190,6 +254,38 @@
         "port": 51619
       },
       "cipher_suite_id": 49200,
+      "tls_version": 771,
+      "key_exchange": "ecdhe",
+      "selected_group": 29
+    },
+    {
+      "fixture": "tls12-ecdhe-x25519-chacha-ems.pcap",
+      "sha256": "1ffc426ecb8f564c7ab0f39a2483fd4eb669896113ec0f8b067a357e6caf99d6",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 54352
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 54351
+      },
+      "cipher_suite_id": 52392,
+      "tls_version": 771,
+      "key_exchange": "ecdhe",
+      "selected_group": 29
+    },
+    {
+      "fixture": "tls12-ecdhe-x25519-chacha-noems.pcap",
+      "sha256": "b938dff12faa284c8b0c415502a9252b7d86b972c97563156fbe5ede35de86ea",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 54355
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 54353
+      },
+      "cipher_suite_id": 52392,
       "tls_version": 771,
       "key_exchange": "ecdhe",
       "selected_group": 29
@@ -275,6 +371,54 @@
       "selected_group": null
     },
     {
+      "fixture": "tls13-dhe-aes128.pcap",
+      "sha256": "fe4ba8543a08536aefa7711f6d38c7fde747612895657fd54064765cb01b7c19",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 55283
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 55282
+      },
+      "cipher_suite_id": 4865,
+      "tls_version": 772,
+      "key_exchange": "dhe",
+      "selected_group": 256
+    },
+    {
+      "fixture": "tls13-dhe-aes256.pcap",
+      "sha256": "3f4f7c4efdad91e847a1e8d2f45976da2f94a1262c322e70d71bf271ef72810a",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 55581
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 55579
+      },
+      "cipher_suite_id": 4866,
+      "tls_version": 772,
+      "key_exchange": "dhe",
+      "selected_group": 256
+    },
+    {
+      "fixture": "tls13-dhe-chacha.pcap",
+      "sha256": "f42357e954bcdafaa95cfe3e1c4d85c882f5cc6b81dd83a801b5c4aad9bbb308",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 56407
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 56405
+      },
+      "cipher_suite_id": 4867,
+      "tls_version": 772,
+      "key_exchange": "dhe",
+      "selected_group": 256
+    },
+    {
       "fixture": "tls13-p256-aes128.pcap",
       "sha256": "f86ee0c3d7a1137579775f3c05efa037aa5fa26ee31ecc5482b78f3841ed1a4a",
       "client": {
@@ -291,6 +435,54 @@
       "selected_group": 23
     },
     {
+      "fixture": "tls13-p256-aes256.pcap",
+      "sha256": "834e96529910888531fcf68b9cfa47c3a91b8c10184c178c3fb8b536d0e91bce",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 53086
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 53084
+      },
+      "cipher_suite_id": 4866,
+      "tls_version": 772,
+      "key_exchange": "ecdhe",
+      "selected_group": 23
+    },
+    {
+      "fixture": "tls13-p256-chacha.pcap",
+      "sha256": "dd12e933904eabeafd34429c40886a59c84e7e854a5f3e30f577f47c1005b2de",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 54551
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 54550
+      },
+      "cipher_suite_id": 4867,
+      "tls_version": 772,
+      "key_exchange": "ecdhe",
+      "selected_group": 23
+    },
+    {
+      "fixture": "tls13-x25519-aes128-keyupdate.pcap",
+      "sha256": "ca89353f67104656f5e11b44411ac985e8b0708e489421a08351d295093f32ea",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 52822
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 52821
+      },
+      "cipher_suite_id": 4865,
+      "tls_version": 772,
+      "key_exchange": "ecdhe",
+      "selected_group": 29
+    },
+    {
       "fixture": "tls13-x25519-aes128.pcap",
       "sha256": "bf89ecd84d1b1a4eef6a4a35ff649e463e195197b02b712be484762304f2eedd",
       "client": {
@@ -305,7 +497,39 @@
       "tls_version": 772,
       "key_exchange": "ecdhe",
       "selected_group": 29
+    },
+    {
+      "fixture": "tls13-x25519-aes256.pcap",
+      "sha256": "93233410bc2cc03e7b3a556a729a9dca83079182e03a73b75b8dd32cb72a7509",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 53404
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 53402
+      },
+      "cipher_suite_id": 4866,
+      "tls_version": 772,
+      "key_exchange": "ecdhe",
+      "selected_group": 29
+    },
+    {
+      "fixture": "tls13-x25519-chacha.pcap",
+      "sha256": "748b9a82aacfdcbfc678e2d0c2e71554bc1b4eb2745a796a1702e9c2c1cf326c",
+      "client": {
+        "ip": "127.0.0.1",
+        "port": 54982
+      },
+      "server": {
+        "ip": "127.0.0.1",
+        "port": 54981
+      },
+      "cipher_suite_id": 4867,
+      "tls_version": 772,
+      "key_exchange": "ecdhe",
+      "selected_group": 29
     }
   ],
-  "packets": 920
+  "packets": 1634
 }
