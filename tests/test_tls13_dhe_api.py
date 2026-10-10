@@ -22,7 +22,7 @@ from qsploit.tls import parse_tls
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT/'tests/fixtures'
 DEMO = ROOT/'qsploit/demo'
-NAMES = ('tls13-dhe-aes128',)
+NAMES = ('tls13-dhe-aes128','tls13-dhe-aes256')
 HEADERS = {'X-QSploit':'1'}
 
 
@@ -83,11 +83,13 @@ def test_tls13_dhe_real_capture_registry_has_only_exact_public_problem_and_obser
     assert 1<x<public['order'] and pow(public['g'],x,public['p'])==public['y']
     assert expected['certificate_verify_signature_scheme']==0x0804
     assert expected['new_session_ticket_count']==1
-    assert expected['cipher_suite_id']==0x1301 and expected['prf_hash']=='sha256'
+    secret_size=48 if 'aes256' in name else 32
+    assert expected['cipher_suite_id']==(0x1302 if secret_size==48 else 0x1301)
+    assert expected['prf_hash']==('sha384' if secret_size==48 else 'sha256')
     assert expected['tls13_secrets']['CLIENT_TRAFFIC_SECRET_0']==expected['client_application_traffic_secret_0_hex']
     assert expected['tls13_secrets']['SERVER_TRAFFIC_SECRET_0']==expected['server_application_traffic_secret_0_hex']
-    assert len(bytes.fromhex(expected['tls13_master_secret_hex']))==32
-    assert all(len(bytes.fromhex(value))==32 for value in expected['tls13_secrets'].values())
+    assert len(bytes.fromhex(expected['tls13_master_secret_hex']))==secret_size
+    assert all(len(bytes.fromhex(value))==secret_size for value in expected['tls13_secrets'].values())
     assert 'x' not in expected['public_problem']
     assert not any(key in expected for key in ('private_key','server_private','x','premaster_secret'))
 
@@ -149,8 +151,9 @@ def test_tls13_dhe_upload_worker_recovery_exact_http_and_safe_preview(client,nam
         assert value not in json.dumps(public)
 
 
-def test_unknown_ephemeral_share_fails_without_using_same_group_or_certificate(client):
-    wire,expected=fixture('tls13-dhe-unknown')
+@pytest.mark.parametrize('name',['tls13-dhe-unknown','tls13-dhe-aes256-unknown'])
+def test_unknown_ephemeral_share_fails_without_using_same_group_or_certificate(client,name):
+    wire,expected=fixture(name)
     assert expected['recovery_registry_key'] not in secrets()
     session=upload(client,wire)
     assert session['implementation']=='supported' and not session['recovery_modes']
@@ -197,8 +200,9 @@ def test_tls13_dhe_corrupted_record_never_publishes_plaintext(client,name,mode):
 
 
 @pytest.mark.parametrize('mode,expected_code',[('missing','TCP_GAP')])
-def test_tls13_dhe_missing_bytes_block_recovery(client,mode,expected_code):
-    wire,_=fixture(NAMES[0])
+@pytest.mark.parametrize('name',NAMES)
+def test_tls13_dhe_missing_bytes_block_recovery(client,mode,expected_code,name):
+    wire,_=fixture(name)
     session=upload(client,alter(wire,mode))
     assert not session['recovery_modes']
     assert expected_code in [issue['code'] for issue in session['blockers']]
@@ -209,8 +213,9 @@ def test_tls13_dhe_missing_bytes_block_recovery(client,mode,expected_code):
 
 
 @pytest.mark.parametrize('wrong_type',[False,True])
-def test_tls13_dhe_wrong_exponent_or_rsa_factors_fail_at_worker_boundary(client,monkeypatch,wrong_type):
-    wire,expected=fixture(NAMES[0])
+@pytest.mark.parametrize('name',NAMES)
+def test_tls13_dhe_wrong_exponent_or_rsa_factors_fail_at_worker_boundary(client,monkeypatch,wrong_type,name):
+    wire,expected=fixture(name)
     x=int(secrets()[expected['recovery_registry_key']]['x'],16)
     async def invalid_result(problem,options,report):
         return Recovery(RSAFactors(3,5) if wrong_type else FFDLogSecret(x+1),'fixture_lookup','none',None,())

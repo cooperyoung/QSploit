@@ -12,8 +12,9 @@ from qsploit.tls import _hello, parse_tls, problem_for
 ROOT = Path(__file__).parents[1]
 
 
-def session_fixture():
-    data = (ROOT / "tests/fixtures/tls13-dhe-aes128.pcap").read_bytes()
+@pytest.fixture(params=["tls13-dhe-aes128", "tls13-dhe-aes256"])
+def ff_session(request):
+    data = (ROOT / "tests/fixtures" / (request.param + ".pcap")).read_bytes()
     return parse_tls(read_connections(data).connections[0])
 
 
@@ -43,17 +44,16 @@ def set_share(extensions, direction, public, group=256):
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
 @pytest.mark.parametrize("size", [255, 257])
-def test_modulus_width_is_required_even_for_identical_valid_integer(direction, size):
-    session = session_fixture()
-    changed = mutate_hello(session, direction, lambda ext: set_share(ext, direction, (2).to_bytes(size, "big")))
+def test_modulus_width_is_required_even_for_identical_valid_integer(direction, size, ff_session):
+    changed = mutate_hello(ff_session, direction, lambda ext: set_share(ext, direction, (2).to_bytes(size, "big")))
     assert "INVALID_DH_PUBLIC" in changed.blockers
     with pytest.raises(QSploitError):
         problem_for(changed)
 
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
-def test_valid_small_share_with_full_leading_zero_padding_is_accepted(direction):
-    changed = mutate_hello(session_fixture(), direction, lambda ext: set_share(ext, direction, (2).to_bytes(256, "big")))
+def test_valid_small_share_with_full_leading_zero_padding_is_accepted(direction, ff_session):
+    changed = mutate_hello(ff_session, direction, lambda ext: set_share(ext, direction, (2).to_bytes(256, "big")))
     assert not changed.blockers
     assert changed.dhe.client_public == 2 if direction == "c2s" else changed.dhe.server_public == 2
     assert problem_for(changed).kind == "ff_dlog"
@@ -61,13 +61,13 @@ def test_valid_small_share_with_full_leading_zero_padding_is_accepted(direction)
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
 @pytest.mark.parametrize("public", [0, 1, FFDHE2048_P - 1, FFDHE2048_P, FFDHE2048_P + 1, FFDHE2048_P - 2])
-def test_out_of_range_or_outside_prime_subgroup_shares_rejected(direction, public):
-    changed = mutate_hello(session_fixture(), direction, lambda ext: set_share(ext, direction, public.to_bytes(256, "big")))
+def test_out_of_range_or_outside_prime_subgroup_shares_rejected(direction, public, ff_session):
+    changed = mutate_hello(ff_session, direction, lambda ext: set_share(ext, direction, public.to_bytes(256, "big")))
     assert "INVALID_DH_PUBLIC" in changed.blockers
 
 
 @pytest.mark.parametrize("variant", ["unoffered_group", "missing_key_share", "wrong_key_share_group", "duplicate_key_share"])
-def test_selected_group_must_be_offered_with_one_matching_share(variant):
+def test_selected_group_must_be_offered_with_one_matching_share(variant, ff_session):
     def update(ext):
         if variant == "unoffered_group":
             ext[10] = b"\x00\x02\x00\x17"
@@ -78,11 +78,11 @@ def test_selected_group_must_be_offered_with_one_matching_share(variant):
         else:
             share = ext[51][2:]
             ext[51] = (2 * len(share)).to_bytes(2, "big") + share + share
-    changed = mutate_hello(session_fixture(), "c2s", update)
+    changed = mutate_hello(ff_session, "c2s", update)
     assert "INVALID_TLS" in changed.blockers
 
 
-def test_other_named_ffdhe_groups_remain_unsupported():
-    changed = mutate_hello(session_fixture(), "s2c", lambda ext: set_share(ext, "s2c", (2).to_bytes(384, "big"), group=257))
+def test_other_named_ffdhe_groups_remain_unsupported(ff_session):
+    changed = mutate_hello(ff_session, "s2c", lambda ext: set_share(ext, "s2c", (2).to_bytes(384, "big"), group=257))
     assert changed.selected_group == 257 and changed.kex == "dhe"
     assert "UNSUPPORTED_GROUP" in changed.blockers

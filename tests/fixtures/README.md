@@ -41,6 +41,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls13-x25519-chacha-unknown.pcap` | Same TLS 1.3 ChaCha20 family with an unknown X25519 server share |
 | `tls13-dhe-aes128.pcap` | Genuine TLS 1.3 ffdhe2048 with AES-128-GCM/SHA-256, independent traffic-secret evidence and one NewSessionTicket |
 | `tls13-dhe-unknown.pcap` | Same finite-field TLS 1.3 family with an unknown server share |
+| `tls13-dhe-aes256.pcap` | Genuine TLS 1.3 ffdhe2048 with AES-256-GCM/SHA-384, independent 48-byte traffic-secret evidence and one NewSessionTicket |
+| `tls13-dhe-aes256-unknown.pcap` | Same SHA-384 finite-field TLS 1.3 family with an unknown server share |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -163,6 +165,9 @@ The FFDHE2048 TLS 1.3 fixtures force named group 256, disable unrelated elliptic
 
 ```sh
 .venv/bin/python scripts/make_ephemeral_fixtures.py --family dhe --tls13
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family dhe --tls13 --aes256
 ```
 
 TLS 1.3 finite-field public shares and the shared secret use the group’s fixed 256-byte encoding. Successful authentication against independent endpoint oracles tests that schedule and encoding together. Temporary certificate private keys, ticket keys and keylogs are deleted, while all earlier captures remain unchanged.
+
+The AES-256 variant explicitly negotiates `0x1302`; all independently logged TLS 1.3 secrets must be 48 bytes, exercising the SHA-384 transcript, key schedule and Finished verification with the same fixed-width finite-field exchange.

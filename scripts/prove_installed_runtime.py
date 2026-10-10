@@ -48,14 +48,17 @@ def main():
         with urlopen(Request(origin + path, data=data, headers=headers), timeout=5) as response:
             body = response.read()
             return json.loads(body) if 'application/json' in response.headers.get('Content-Type', '') else body
-    with tempfile.TemporaryDirectory(prefix='qsploit-wheel-server-') as directory:
+    with tempfile.TemporaryDirectory(prefix='qsploit-wheel-server-') as directory, tempfile.TemporaryFile(mode='w+', encoding='utf-8') as server_log:
+        # Uvicorn logs every request. A multi-session tour can fill an unread
+        # pipe and stall the server; a temporary file has no pipe backpressure.
         server = subprocess.Popen([sys.executable, '-m', 'qsploit', '--demo', '--demo-delay-seconds', '0', '--port', str(port)],
                                   cwd=directory, env={**os.environ, 'PYTHONPYCACHEPREFIX': directory + '/pycache'},
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                  stdout=server_log, stderr=subprocess.STDOUT, text=True)
         try:
             for _ in range(100):
                 if server.poll() is not None:
-                    raise AssertionError(server.communicate()[1])
+                    server_log.seek(0)
+                    raise AssertionError(server_log.read())
                 try:
                     config = request('/api/config')
                     break
@@ -103,10 +106,10 @@ def main():
             if server.poll() is None:
                 server.terminate()
             try:
-                server.communicate(timeout=5)
+                server.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 server.kill()
-                server.communicate(timeout=5)
+                server.wait(timeout=5)
 
 
 if __name__ == '__main__':

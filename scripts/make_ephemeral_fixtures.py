@@ -302,8 +302,8 @@ def main():
         parser.error('--aes256 requires the baseline TLS 1.3 capture mode')
     if args.chacha and (args.aes256 or args.key_update):
         parser.error('ChaCha20-Poly1305 requires a baseline capture and cipher choices are exclusive')
-    if args.tls13 and args.family=='dhe' and (args.aes256 or args.chacha or args.key_update):
-        parser.error('The current TLS 1.3 FFDHE2048 gate is AES-128 baseline only')
+    if args.tls13 and args.family=='dhe' and (args.chacha or args.key_update):
+        parser.error('The current TLS 1.3 FFDHE2048 gate supports AES-GCM baseline captures')
     if tlslite.__version__ != '0.8.2':
         raise RuntimeError('The development observer is verified against tlslite-ng 0.8.2 only')
     cases = [('tls12-dhe-aes128-ems','aes128gcm',True,True),

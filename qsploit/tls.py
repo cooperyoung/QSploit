@@ -405,7 +405,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 blockers.append("EARLY_DATA_UNSUPPORTED")
             if sh["suite"] not in (0x1301, 0x1302, 0x1303):
                 blockers.append("UNSUPPORTED_CIPHER")
-            if state["selected_group"] == 256 and sh["suite"] != 0x1301:
+            if state["selected_group"] == 256 and sh["suite"] not in (0x1301, 0x1302):
                 blockers.append("UNSUPPORTED_CIPHER")
             if state["selected_group"] not in (23, 29, 256):
                 blockers.append("UNSUPPORTED_GROUP")
@@ -541,8 +541,8 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
         if session.psk_selected:
             raise QSploitError("PSK_UNSUPPORTED", "Selected TLS 1.3 PSKs are not recoverable from the ephemeral share alone.")
         if session.kex == "dhe" and session.dhe is not None:
-            if session.cipher_suite != 0x1301:
-                raise QSploitError("UNSUPPORTED_CIPHER", "TLS 1.3 ffdhe2048 currently supports AES-128-GCM only.")
+            if session.cipher_suite not in (0x1301, 0x1302):
+                raise QSploitError("UNSUPPORTED_CIPHER", "TLS 1.3 ffdhe2048 currently supports AES-GCM only.")
             key = session.dhe
             validate_ffdhe2048(key.p, key.g, key.order, key.server_public, key.client_public)
             return FFDLogProblem(key.p, key.g, key.server_public, key.order)

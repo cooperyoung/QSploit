@@ -21,8 +21,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | DHE_RSA ffdhe2048 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
 | TLS 1.2 | ECDHE_RSA P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
 | TLS 1.3 | ECDHE P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: full handshake and exact HTTP |
-| TLS 1.3 | FFDHE2048 | AES-128-GCM | **Verified**: full handshake, fixed-width shared secret and exact HTTP |
-| TLS 1.3 | FFDHE2048 | AES-256-GCM / ChaCha20-Poly1305 | Pending the next sequential gates |
+| TLS 1.3 | FFDHE2048 | AES-128/256-GCM | **Verified**: full handshake, fixed-width shared secret and exact HTTP |
+| TLS 1.3 | FFDHE2048 | ChaCha20-Poly1305 | Pending the final sequential gate |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
 
 HTTP/1.1 reconstruction, chunked framing, bounded gzip decoding, and inert HTML
@@ -202,3 +202,12 @@ exact 256-byte shares, offered groups, approved parameters and subgroup membersh
 An independent OpenSSL-crosschecked leading-zero vector proves TLS 1.3 retains
 all 256 shared-secret bytes while TLS 1.2 strips the leading zero. The integrated
 FFDHE/API/provenance gate passed 89 tests; the classical regression passed 258.
+
+## Extension 6b: TLS 1.3 FFDHE2048 / AES-256-GCM
+
+The independent 0x1302 known/unknown captures extend the same padded finite-field
+exchange through SHA-384 HKDF and 32-byte AES keys. Exact 48-byte endpoint secrets
+and HTTP match. Both Finished and all 20 protected records verify through the
+ordinary worker/API and isolated runtime. The integrated FFDHE/API/provenance
+gate passed 122 tests; the classical regression passed 260. ChaCha remains gated
+until its own genuine capture validation.

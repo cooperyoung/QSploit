@@ -504,6 +504,28 @@
       "recovery_secret_bundled": false,
       "packet_count": 52,
       "linktype": 0
+    },
+    {
+      "file": "tls13-dhe-aes256.pcap",
+      "sha256": "3f4f7c4efdad91e847a1e8d2f45976da2f94a1262c322e70d71bf271ef72810a",
+      "size": 58578,
+      "sessions": 1,
+      "mode": "tls13_dhe",
+      "cipher_suite_id": 4866,
+      "recovery_secret_bundled": true,
+      "packet_count": 52,
+      "linktype": 0
+    },
+    {
+      "file": "tls13-dhe-aes256-unknown.pcap",
+      "sha256": "c952451331370afda02e876afbedd6997dc86b3aaa575ab97a58d99f5152a4ef",
+      "size": 58578,
+      "sessions": 1,
+      "mode": "tls13_dhe",
+      "cipher_suite_id": 4866,
+      "recovery_secret_bundled": false,
+      "packet_count": 52,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

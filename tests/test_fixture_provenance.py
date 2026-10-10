@@ -53,7 +53,7 @@ def test_runtime_assets_have_only_pcaps_and_explicit_recovery_fixtures():
     expected_names |= {'tls12-dhe-chacha-ems.pcap','tls12-dhe-chacha-noems.pcap'}
     expected_names |= {'tls12-ecdhe-p256-chacha-ems.pcap','tls12-ecdhe-p256-chacha-noems.pcap'}
     expected_names |= {'tls12-ecdhe-x25519-chacha-ems.pcap','tls12-ecdhe-x25519-chacha-noems.pcap'}
-    expected_names |= {'tls13-dhe-aes128.pcap'}
+    expected_names |= {'tls13-dhe-aes128.pcap','tls13-dhe-aes256.pcap'}
     assert {p.name for p in DEMO.iterdir() if p.is_file()} == expected_names
     factors = json.loads((DEMO / 'factors.json').read_text())
     assert len(factors) == 2
