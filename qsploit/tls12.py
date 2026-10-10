@@ -24,9 +24,9 @@ CIPHER_PARAMETERS = {
     0x009c: ("sha256", 16), 0x009d: ("sha384", 32),
     0x009e: ("sha256", 16), 0x009f: ("sha384", 32),
     0xc02f: ("sha256", 16), 0xc030: ("sha384", 32),
-    0xccaa: ("sha256", 32),
+    0xccaa: ("sha256", 32), 0xcca8: ("sha256", 32),
 }
-CHACHA_SUITES = frozenset({0xccaa})
+CHACHA_SUITES = frozenset({0xccaa, 0xcca8})
 
 
 def cipher_parameters(cipher_suite: int) -> tuple[str, int]:

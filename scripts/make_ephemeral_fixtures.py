@@ -288,14 +288,14 @@ def main():
     parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 AES-128 baseline and unknown-share case')
     parser.add_argument('--key-update',action='store_true',help='Generate a separate TLS 1.3 capture with a genuine server KeyUpdate')
     parser.add_argument('--aes256',action='store_true',help='Generate the TLS 1.3 AES-256/SHA-384 family only')
-    parser.add_argument('--chacha',action='store_true',help='Generate the gated TLS 1.2 DHE ChaCha20-Poly1305 family only')
+    parser.add_argument('--chacha',action='store_true',help='Generate the gated TLS 1.2 ChaCha20-Poly1305 family only')
     args = parser.parse_args()
     if args.key_update and not args.tls13:
         parser.error('--key-update requires --tls13')
     if args.aes256 and (not args.tls13 or args.key_update):
         parser.error('--aes256 requires the baseline TLS 1.3 capture mode')
-    if args.chacha and (args.tls13 or args.aes256 or args.family!='dhe'):
-        parser.error('The current ChaCha20-Poly1305 gate is TLS 1.2 DHE only')
+    if args.chacha and (args.tls13 or args.aes256 or args.family=='x25519'):
+        parser.error('The current ChaCha20-Poly1305 gate supports TLS 1.2 DHE and P-256')
     if args.tls13 and args.family=='dhe':
         parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
     if tlslite.__version__ != '0.8.2':
@@ -308,9 +308,10 @@ def main():
     if args.family!='dhe':
         cases = [(name.replace('tls12-dhe-','tls12-ecdhe-'+args.family+'-'),cipher,ems,known) for name,cipher,ems,known in cases]
     if args.chacha:
-        cases = [('tls12-dhe-chacha-ems','chacha20-poly1305',True,True),
-                 ('tls12-dhe-chacha-noems','chacha20-poly1305',False,True),
-                 ('tls12-dhe-chacha-unknown','chacha20-poly1305',True,False)]
+        prefix = 'tls12-dhe' if args.family=='dhe' else 'tls12-ecdhe-'+args.family
+        cases = [(prefix+'-chacha-ems','chacha20-poly1305',True,True),
+                 (prefix+'-chacha-noems','chacha20-poly1305',False,True),
+                 (prefix+'-chacha-unknown','chacha20-poly1305',True,False)]
     if args.tls13:
         bits = 256 if args.aes256 else 128
         cipher = f'aes{bits}gcm'

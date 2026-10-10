@@ -1,4 +1,4 @@
-"""Genuine DHE ChaCha TLS 1.2 captures; negative mutations are synthetic."""
+"""Genuine DHE/ECDHE ChaCha TLS 1.2 captures; mutations are synthetic."""
 import base64
 from dataclasses import replace
 import json
@@ -7,21 +7,23 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import pytest
 
-from qsploit.models import FFDLogSecret, QSploitError
+from qsploit.models import ECDLogSecret, FFDLogSecret, QSploitError
 from qsploit.pcap import read_connections
-from qsploit.tls import parse_tls
+from qsploit.tls import _ecdhe_key_exchange, _hello, parse_tls
 from qsploit.tls12 import decrypt_record, decrypt_tls12, derive_key_block, derive_master_secret
 
 ROOT = Path(__file__).parents[1]
-NAMES = ["tls12-dhe-chacha-ems", "tls12-dhe-chacha-noems"]
+NAMES = ["tls12-dhe-chacha-ems", "tls12-dhe-chacha-noems", "tls12-ecdhe-p256-chacha-ems", "tls12-ecdhe-p256-chacha-noems"]
 
 
 def fixture(name):
     path = ROOT / "tests/fixtures" / name
     session = parse_tls(read_connections(path.with_suffix(".pcap").read_bytes()).connections[0])
     expected = json.loads(path.with_suffix(".expected.json").read_text())
-    registry = json.loads((ROOT / "qsploit/demo/dlog.json").read_text())
-    secret = FFDLogSecret(int(registry[expected["recovery_registry_key"]]["x"], 16))
+    registry_file = "dlog.json" if session.kex == "dhe" else "ec_dlog.json"
+    registry = json.loads((ROOT / "qsploit/demo" / registry_file).read_text())
+    scalar = int(registry[expected["recovery_registry_key"]]["x"], 16)
+    secret = FFDLogSecret(scalar) if session.kex == "dhe" else ECDLogSecret(scalar)
     return session, secret, expected
 
 
@@ -49,9 +51,9 @@ def encrypt(record, key, iv, seq, plaintext):
 
 
 @pytest.mark.parametrize("name", NAMES)
-def test_genuine_dhe_chacha_matches_independent_endpoint_oracles(name):
+def test_genuine_chacha_matches_independent_endpoint_oracles(name):
     session, secret, expected = fixture(name)
-    assert not session.blockers and session.cipher_suite == 0xccaa and session.kex == "dhe"
+    assert not session.blockers and session.cipher_suite == (0xccaa if session.kex == "dhe" else 0xcca8)
     assert session.ems is expected["ems"]
     assert derive_master_secret(session, secret).hex() == expected["master_secret_hex"]
     output = decrypt_tls12(session, secret)
@@ -90,8 +92,9 @@ def test_valid_chacha_tag_with_wrong_finished_rejected(name, direction):
 
 
 @pytest.mark.parametrize("direction", ["c2s", "s2c"])
-def test_split_chacha_finished_updates_implicit_record_nonces(direction):
-    session, secret, expected = fixture(NAMES[0])
+@pytest.mark.parametrize("name", [NAMES[0], NAMES[2]])
+def test_split_chacha_finished_updates_implicit_record_nonces(direction, name):
+    session, secret, expected = fixture(name)
     key, iv = traffic(session, secret, direction)
     indices = protected_indices(session, direction)
     changed = []
@@ -109,3 +112,15 @@ def test_split_chacha_finished_updates_implicit_record_nonces(direction):
     assert output.c2s == base64.b64decode(expected["c2s_base64"])
     assert output.s2c == base64.b64decode(expected["s2c_base64"])
     assert output.authenticated_records == 20
+
+
+@pytest.mark.parametrize("name", NAMES[2:])
+def test_ecdhe_chacha_signature_binds_server_parameters(name):
+    session, _, _ = fixture(name)
+    wires = {(h.direction, h.wire[0]): h.wire for h in session.clear_handshakes}
+    client, server = _hello(wires["c2s", 1], True), _hello(wires["s2c", 2], False)
+    signed = wires["s2c", 12]
+    altered = signed[:-1] + bytes([signed[-1] ^ 1])
+    with pytest.raises(QSploitError) as exc:
+        _ecdhe_key_exchange(altered, wires["c2s", 16], wires["s2c", 11], client["random"], server["random"], client["ext"], server["ext"])
+    assert exc.value.code == "SERVER_SIGNATURE_FAILED"

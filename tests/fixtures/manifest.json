@@ -372,6 +372,39 @@
       "recovery_secret_bundled": false,
       "packet_count": 50,
       "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-chacha-ems.pcap",
+      "sha256": "5e5f5894e98b006fd2565395104e1e7b2562af07e48f9827974cd83237624dbb",
+      "size": 57665,
+      "sessions": 1,
+      "mode": "p256_ems",
+      "cipher_suite_id": 52392,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-chacha-noems.pcap",
+      "sha256": "5fc8ddc3711d50e5c3d06a97ad1d09d197071f1a3985462038366b0d205db0fc",
+      "size": 57657,
+      "sessions": 1,
+      "mode": "p256_noems",
+      "cipher_suite_id": 52392,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-chacha-unknown.pcap",
+      "sha256": "0e36028e6531fae8fa0450678fd6de94c02fe9853d1b83bc3226d8eeb4bbe187",
+      "size": 57665,
+      "sessions": 1,
+      "mode": "p256_ems",
+      "cipher_suite_id": 52392,
+      "recovery_secret_bundled": false,
+      "packet_count": 50,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

@@ -8,6 +8,10 @@ const state = {
   job: null,
   busy: false,
   quantumBusy: false,
+  selectionEpoch: 0,
+  exchangeRequest: 0,
+  exchangeListRequest: 0,
+  activePoll: null,
 };
 const node = (tag, text, cls) => {
   const e = document.createElement(tag);
@@ -76,6 +80,15 @@ function busy(on) {
   $("#file").disabled = on;
   $("#run-quantum").disabled = on || state.quantumBusy || !state.aer;
 }
+function resetSelection() {
+  state.selected = null;
+  state.exchange = null;
+  state.job = null;
+  ++state.selectionEpoch;
+  ++state.exchangeRequest;
+  ++state.exchangeListRequest;
+  for (const id of ["#session-detail", "#inspector", "#job-panel"]) $(id).hidden = true;
+}
 async function upload(file) {
   if (state.busy || state.quantumBusy) return;
   $("#error").hidden = true;
@@ -88,8 +101,7 @@ async function upload(file) {
       body: file,
     });
     state.filename = file.name || "qsploit-demo.pcap";
-    state.selected = null;
-    state.job = null;
+    resetSelection();
     $("#dropzone").classList.add("compact");
     renderCapture();
     const first =
@@ -145,8 +157,7 @@ $("#clear").onclick = async () => {
   try {
     await api(`/api/captures/${state.capture.id}`, { method: "DELETE" });
     state.capture = null;
-    state.selected = null;
-    state.job = null;
+    resetSelection();
     $("#workspace").hidden = true;
     $("#dropzone").classList.remove("compact");
     $("#error").hidden = true;
@@ -229,6 +240,9 @@ function selected() {
   return state.capture?.sessions.find((s) => s.id === state.selected);
 }
 async function selectSession(id) {
+  const epoch = ++state.selectionEpoch;
+  ++state.exchangeRequest;
+  ++state.exchangeListRequest;
   state.selected = id;
   state.exchange = null;
   state.job = null;
@@ -237,7 +251,7 @@ async function selectSession(id) {
   renderCapture();
   renderDetail();
   const job = await api(`/api/sessions/${id}/job`);
-  if (state.selected !== id) return;
+  if (state.selected !== id || state.selectionEpoch !== epoch) return;
   if (job) {
     state.job = job;
     renderJob(job);
@@ -365,17 +379,20 @@ function renderJob(job) {
   ]);
 }
 $("#recover").onclick = async () => {
+  const sid = state.selected;
   try {
     $("#error").hidden = true;
     $("#inspector").hidden = true;
     busy(true);
-    const job = await api(`/api/sessions/${state.selected}/recover`, {
+    const job = await api(`/api/sessions/${sid}/recover`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
     });
-    state.job = job;
-    renderJob(job);
+    if (state.selected === sid) {
+      state.job = job;
+      renderJob(job);
+    }
     await poll(job.id, false);
   } catch (e) {
     error(e);
@@ -384,7 +401,16 @@ $("#recover").onclick = async () => {
   }
 };
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-async function poll(id, quantum) {
+const polls = new Map();
+function poll(id, quantum) {
+  if (polls.has(id)) return polls.get(id);
+  const pending = pollJob(id, quantum);
+  polls.set(id, pending);
+  pending.then(() => polls.delete(id), () => polls.delete(id));
+  return pending;
+}
+async function pollJob(id, quantum) {
+  state.activePoll = id;
   try {
     while (true) {
       const job = await api(`/api/jobs/${id}`);
@@ -396,26 +422,36 @@ async function poll(id, quantum) {
       }
       if (!["running", "queued"].includes(job.state)) {
         if (!quantum) {
-          state.capture = await api(`/api/captures/${state.capture.id}`);
-          renderCapture();
-          renderDetail();
-          if (job.state === "succeeded" && state.selected === job.session_id)
-            await loadExchanges();
+          const captureId = state.capture?.id;
+          if (captureId) {
+            const capture = await api(`/api/captures/${captureId}`);
+            if (state.capture?.id === captureId && state.activePoll === id) {
+              state.capture = capture;
+              renderCapture();
+              renderDetail();
+              if (job.state === "succeeded" && state.selected === job.session_id)
+                await loadExchanges();
+            }
+          }
         }
         break;
       }
       await delay(400);
     }
   } finally {
-    if (quantum) state.quantumBusy = false;
-    busy(false);
-    if (state.selected) renderDetail();
+    if (state.activePoll === id) {
+      state.activePoll = null;
+      if (quantum) state.quantumBusy = false;
+      busy(false);
+      if (state.selected) renderDetail();
+    }
   }
 }
 async function loadExchanges() {
-  const sid = state.selected;
+  const sid = state.selected, epoch = state.selectionEpoch;
+  const request = ++state.exchangeListRequest;
   const exchanges = await api(`/api/sessions/${sid}/http`);
-  if (sid !== state.selected) return;
+  if (sid !== state.selected || epoch !== state.selectionEpoch || request !== state.exchangeListRequest) return;
   $("#inspector").hidden = false;
   $("#exchanges").replaceChildren();
   $("#message-panes").hidden = !exchanges.length;
@@ -452,9 +488,10 @@ async function loadExchanges() {
   if (exchanges.length) await loadExchange(0);
 }
 async function loadExchange(index) {
-  const sid = state.selected;
+  const sid = state.selected, epoch = state.selectionEpoch;
+  const request = ++state.exchangeRequest;
   const item = await api(`/api/sessions/${sid}/http/${index}`);
-  if (sid !== state.selected) return;
+  if (sid !== state.selected || epoch !== state.selectionEpoch || request !== state.exchangeRequest) return;
   state.exchange = item;
   for (const b of $("#exchanges").children)
     b.classList.toggle("active", Number(b.dataset.index) === index);

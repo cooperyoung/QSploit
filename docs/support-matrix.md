@@ -19,7 +19,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.3 | ECDHE P-256, X25519 | AES-128-GCM / SHA-256 | **Verified**: full handshake, encrypted ALPN, ticket; X25519 genuine KeyUpdate |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-256-GCM / SHA-384 | **Verified**: independent 48-byte traffic-secret evidence |
 | TLS 1.2 | DHE_RSA ffdhe2048 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
-| TLS 1.2 / 1.3 | ECDHE P-256, X25519 | ChaCha20-Poly1305 | Next protocol gates |
+| TLS 1.2 | ECDHE_RSA P-256 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
+| TLS 1.2 / 1.3 | Remaining ECDHE combinations | ChaCha20-Poly1305 | Next protocol gates |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
 
@@ -156,3 +157,11 @@ uses the full 64-bit sequence, with no explicit nonce bytes in the record.
 Independent RFC 8439 primitive and cross-implementation TLS record vectors cover
 the changed layout. AES-GCM regression coverage remains intact. There is no
 standard static-RSA ChaCha suite; none is invented.
+
+## Extension 5b: TLS 1.2 P-256 / ChaCha20-Poly1305
+
+The 0xcca8 EMS/non-EMS captures reuse the verified P-256 shared-secret path and
+ChaCha record layout. Genuine endpoint masters and both HTTP messages match
+through the worker/API and isolated runtime; both Finished and all 19 records
+verify. Signed-parameter mutation, wrong recovery, valid-tag wrong Finished,
+record corruption, fragmentation and unknown-share tests pass.

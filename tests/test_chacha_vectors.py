@@ -1,4 +1,4 @@
-"""Independent ChaCha20-Poly1305 vectors; TLS 1.2 DHE gate only.
+"""Independent ChaCha20-Poly1305 vectors for TLS 1.2 DHE and ECDHE.
 
 RFC 8439 section 2.8.2 is a published primitive known answer. The separate
 TLS record and 88-byte key block are static synthetic test vectors generated
@@ -44,8 +44,9 @@ def test_rfc8439_published_chacha20_poly1305_primitive_answer():
     assert cipher.decrypt(R["nonce"], R["ciphertext_tag"], R["aad"]) == R["plaintext"]
 
 
-def test_tls12_chacha_key_block_has_two_32_byte_keys_and_two_12_byte_ivs():
-    block = derive_key_block(T["master"], T["client_random"], T["server_random"], cipher_suite=SUITE)
+@pytest.mark.parametrize("suite", [0xCCAA, 0xCCA8])
+def test_tls12_chacha_key_block_has_two_32_byte_keys_and_two_12_byte_ivs(suite):
+    block = derive_key_block(T["master"], T["client_random"], T["server_random"], cipher_suite=suite)
     assert block == T["key_block"]
     assert len(block) == 88
     assert block[:32] == T["key"] and block[64:76] == T["iv"]
@@ -57,9 +58,10 @@ def sample_record():
     return Record("c2s", 0, wire[0], int.from_bytes(wire[1:3], "big"), wire[5:])
 
 
-def test_static_tls12_record_implicit_nonce_and_plaintext_length_aad():
+@pytest.mark.parametrize("suite", [0xCCAA, 0xCCA8])
+def test_static_tls12_record_implicit_nonce_and_plaintext_length_aad(suite):
     assert len(sample_record().fragment) == len(T["plaintext"]) + 16
-    assert decrypt_record(sample_record(), T["key"], T["iv"], SEQUENCE, cipher_suite=SUITE) == T["plaintext"]
+    assert decrypt_record(sample_record(), T["key"], T["iv"], SEQUENCE, cipher_suite=suite) == T["plaintext"]
 
 
 @pytest.mark.parametrize("mutation", ["sequence", "direction-key", "iv", "version", "type", "ciphertext", "tag", "explicit-nonce"])
