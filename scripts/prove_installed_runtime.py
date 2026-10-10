@@ -7,7 +7,6 @@ No TestClient, Qiskit, tlslite or traffic-decryption utility is used.
 """
 from __future__ import annotations
 import base64
-import hashlib
 import importlib.util
 import json
 import os
@@ -41,6 +40,8 @@ def main():
     origin = f'http://127.0.0.1:{port}'
     def request(path, data=None):
         headers = {'X-QSploit': '1'}
+        if isinstance(data, bytes):
+            headers['Content-Type'] = 'application/octet-stream'
         if isinstance(data, dict):
             data = json.dumps(data).encode()
             headers['Content-Type'] = 'application/json'
@@ -89,6 +90,8 @@ def main():
                     view = request(f'/api/sessions/{sid}/http/{index}')
                     assert view['request']['raw_b64'] == exchange['request_base64']
                     assert view['response']['raw_b64'] == exchange['response_base64']
+                assert view['response']['decoded_body_b64'] == expected['json_body_base64']
+                assert ['note', 'hello world'] in view['form_parameters']
                 preview = request(f'/api/sessions/{sid}/http/0/preview')
                 assert b'Welcome back, Cooper.' in preview and b'<script' not in preview
                 combinations.add((session['tls_version'], session['key_exchange'], session['selected_group_name'] or 'RSA', session['cipher_suite_name']))

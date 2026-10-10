@@ -460,6 +460,28 @@
       "recovery_secret_bundled": false,
       "packet_count": 52,
       "linktype": 0
+    },
+    {
+      "file": "tls13-x25519-chacha.pcap",
+      "sha256": "748b9a82aacfdcbfc678e2d0c2e71554bc1b4eb2745a796a1702e9c2c1cf326c",
+      "size": 58087,
+      "sessions": 1,
+      "mode": "tls13_x25519",
+      "cipher_suite_id": 4867,
+      "recovery_secret_bundled": true,
+      "packet_count": 52,
+      "linktype": 0
+    },
+    {
+      "file": "tls13-x25519-chacha-unknown.pcap",
+      "sha256": "71b9a19ae20970216905beccc0ffb9cdbe740df2f3dd343156a9e85d8e8974d9",
+      "size": 58087,
+      "sessions": 1,
+      "mode": "tls13_x25519",
+      "cipher_suite_id": 4867,
+      "recovery_secret_bundled": false,
+      "packet_count": 52,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

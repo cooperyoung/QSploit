@@ -24,7 +24,7 @@ from qsploit.tls import parse_tls
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT/'tests/fixtures'
 DEMO = ROOT/'qsploit/demo'
-NAMES = ('tls13-p256-aes128','tls13-x25519-aes128','tls13-x25519-aes128-keyupdate','tls13-p256-aes256','tls13-x25519-aes256','tls13-p256-chacha')
+NAMES = ('tls13-p256-aes128','tls13-x25519-aes128','tls13-x25519-aes128-keyupdate','tls13-p256-aes256','tls13-x25519-aes256','tls13-p256-chacha','tls13-x25519-chacha')
 HEADERS = {'X-QSploit':'1'}
 
 
@@ -178,7 +178,7 @@ def test_tls13_upload_worker_recovery_exact_http_and_safe_preview(client,name,mo
         assert value not in json.dumps(public)
 
 
-@pytest.mark.parametrize('name',['tls13-p256-unknown','tls13-x25519-unknown','tls13-p256-aes256-unknown','tls13-x25519-aes256-unknown','tls13-p256-chacha-unknown'])
+@pytest.mark.parametrize('name',['tls13-p256-unknown','tls13-x25519-unknown','tls13-p256-aes256-unknown','tls13-x25519-aes256-unknown','tls13-p256-chacha-unknown','tls13-x25519-chacha-unknown'])
 def test_unknown_ephemeral_share_fails_without_using_same_group_or_certificate(client,name):
     wire,expected=fixture(name)
     assert expected['recovery_registry_key'] not in secrets()

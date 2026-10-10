@@ -20,8 +20,7 @@ test oracle's master secret or expected plaintext.
 | TLS 1.3 | ECDHE P-256, X25519 | AES-256-GCM / SHA-384 | **Verified**: independent 48-byte traffic-secret evidence |
 | TLS 1.2 | DHE_RSA ffdhe2048 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
 | TLS 1.2 | ECDHE_RSA P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
-| TLS 1.3 | ECDHE P-256 | ChaCha20-Poly1305 / SHA-256 | **Verified**: full handshake and exact HTTP |
-| TLS 1.3 | ECDHE X25519 | ChaCha20-Poly1305 | Next protocol gate |
+| TLS 1.3 | ECDHE P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: full handshake and exact HTTP |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
 
@@ -182,3 +181,12 @@ keys, encrypted handshake, CertificateVerify, both Finished messages and all 20
 protected records. Independent endpoint traffic secrets and exact HTTP agree
 through the same API. Algorithm selection is explicit by cipher suite; it does
 not confuse AES-256 and ChaCha merely because both use a 32-byte key.
+
+## Extension 5e: TLS 1.3 X25519 / ChaCha20-Poly1305
+
+The last ECDHE cipher combination passes a separate genuine known/unknown-share
+capture gate. Its independent SHA-256 traffic secrets and exact HTTP match the
+ordinary worker/API result; CertificateVerify, both Finished and all 20 protected
+records authenticate. No production change was needed beyond the existing
+X25519 and TLS 1.3 ChaCha implementations. All requested ECDHE AEAD combinations
+are now covered; finite-field TLS 1.3 is the remaining protocol family.

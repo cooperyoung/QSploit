@@ -37,6 +37,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls12-ecdhe-x25519-chacha-unknown.pcap` | Same X25519 ChaCha20 family with an unknown server share |
 | `tls13-p256-chacha.pcap` | Genuine TLS 1.3 P-256 with ChaCha20-Poly1305/SHA-256 (`0x1303`), independent traffic-secret evidence and one NewSessionTicket |
 | `tls13-p256-chacha-unknown.pcap` | Same TLS 1.3 ChaCha20 family with an unknown server point |
+| `tls13-x25519-chacha.pcap` | Genuine TLS 1.3 X25519 with ChaCha20-Poly1305/SHA-256 (`0x1303`), independent traffic-secret evidence and one NewSessionTicket |
+| `tls13-x25519-chacha-unknown.pcap` | Same TLS 1.3 ChaCha20 family with an unknown X25519 server share |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -148,4 +150,7 @@ The P-256 TLS 1.3 ChaCha20 fixtures negotiate `TLS_CHACHA20_POLY1305_SHA256` (`0
 
 ```sh
 .venv/bin/python scripts/make_ephemeral_fixtures.py --family p256 --tls13 --chacha
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family x25519 --tls13 --chacha
 ```
+
+Both curves use the same TLS 1.3 SHA-256 schedule and ChaCha20 AEAD record rules. Their distinct observed public problems select only the matching test recovery secret, and each command preserves all previously captured families.
