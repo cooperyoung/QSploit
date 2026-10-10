@@ -10,8 +10,8 @@ from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from .models import FFDHEKeyExchange, FFDLogProblem, Handshake, ParsedTLS, PublicProblem, QSploitError, Record, RSAKeyTransport, RSAProblem, TCPConnection
-from .groups import FFDHE2048_ORDER, validate_ffdhe2048
+from .models import ECDHEKeyExchange, ECDLogProblem, FFDHEKeyExchange, FFDLogProblem, Handshake, ParsedTLS, PublicProblem, QSploitError, Record, RSAKeyTransport, RSAProblem, TCPConnection
+from .groups import FFDHE2048_ORDER, validate_ffdhe2048, validate_p256_point
 
 MAX_HANDSHAKE_BYTES = 1024 * 1024
 MAX_RECORDS = 200_000
@@ -19,7 +19,8 @@ MAX_HANDSHAKE_MESSAGES = 4096
 MAX_RSA_BITS = 16384
 SUPPORTED_RSA_GCM_SUITES = frozenset({0x009c, 0x009d})
 SUPPORTED_DHE_GCM_SUITES = frozenset({0x009e, 0x009f})
-SUPPORTED_TLS12_GCM_SUITES = SUPPORTED_RSA_GCM_SUITES | SUPPORTED_DHE_GCM_SUITES
+SUPPORTED_ECDHE_GCM_SUITES = frozenset({0xc02f, 0xc030})
+SUPPORTED_TLS12_GCM_SUITES = SUPPORTED_RSA_GCM_SUITES | SUPPORTED_DHE_GCM_SUITES | SUPPORTED_ECDHE_GCM_SUITES
 
 SUITES = {
     0x002f: ("TLS_RSA_WITH_AES_128_CBC_SHA", "rsa_transport", "RSA"),
@@ -241,34 +242,75 @@ def _dhe_key_exchange(server_wire: bytes, client_wire: bytes, certificate_wire: 
         offered_groups = [int.from_bytes(group_bytes[i:i + 2], "big") for i in range(0, len(group_bytes), 2)]
         if any(256 <= group <= 511 for group in offered_groups) and 256 not in offered_groups:
             raise QSploitError("INVALID_TLS", "The selected ffdhe2048 group was not offered by the client.")
+    _verify_server_signature(reader, parameters_wire, certificate_wire, client_random, server_random, client_extensions)
+    return FFDHEKeyExchange(p, g, server_public, client_public, FFDHE2048_ORDER)
+
+
+def _verify_server_signature(reader: _Reader, parameters_wire: bytes, certificate_wire: bytes,
+                             client_random: bytes, server_random: bytes, client_extensions: dict[int, bytes]) -> None:
     scheme, signature = reader.number(2), reader.vector(2)
     reader.end()
     offered = client_extensions.get(13)
     if offered is None:
-        raise QSploitError("UNSUPPORTED_SIGNATURE", "The DHE path requires an explicit client signature-algorithms offer.")
+        raise QSploitError("UNSUPPORTED_SIGNATURE", "Ephemeral key exchange requires an explicit client signature-algorithms offer.")
     algorithms = _Reader(offered)
     offered_bytes = algorithms.vector(2)
     algorithms.end()
     if not offered_bytes or len(offered_bytes) % 2:
         raise QSploitError("INVALID_TLS", "The offered signature algorithms have invalid framing.")
     if scheme not in [int.from_bytes(offered_bytes[i:i + 2], "big") for i in range(0, len(offered_bytes), 2)]:
-        raise QSploitError("INVALID_TLS", "The server's DH signature algorithm was not offered by the client.")
+        raise QSploitError("INVALID_TLS", "The server's signature algorithm was not offered by the client.")
     digest_types = {0x0401: hashes.SHA256, 0x0501: hashes.SHA384, 0x0601: hashes.SHA512,
                     0x0804: hashes.SHA256, 0x0805: hashes.SHA384, 0x0806: hashes.SHA512}
     if scheme not in digest_types:
-        raise QSploitError("UNSUPPORTED_SIGNATURE", "This DHE ServerKeyExchange signature scheme is not implemented.")
+        raise QSploitError("UNSUPPORTED_SIGNATURE", "This ServerKeyExchange signature scheme is not implemented.")
     key = _leaf_key(certificate_wire)
     if not isinstance(key, rsa.RSAPublicKey) or key.key_size > MAX_RSA_BITS:
-        raise QSploitError("INVALID_RSA_KEY", "DHE_RSA requires a supported RSA certificate signing key.")
+        raise QSploitError("INVALID_RSA_KEY", "This ephemeral exchange requires a supported RSA certificate signing key.")
     digest = digest_types[scheme]()
     signature_padding = padding.PKCS1v15() if scheme < 0x0800 else padding.PSS(mgf=padding.MGF1(digest), salt_length=digest.digest_size)
     if len(signature) != (key.key_size + 7) // 8:
-        raise QSploitError("SERVER_SIGNATURE_FAILED", "The captured DH signature has an invalid width.")
+        raise QSploitError("SERVER_SIGNATURE_FAILED", "The captured server signature has an invalid width.")
     try:
         key.verify(signature, client_random + server_random + parameters_wire, signature_padding, digest)
     except (InvalidSignature, ValueError):
-        raise QSploitError("SERVER_SIGNATURE_FAILED", "The certificate key does not verify the captured DH parameters and hello randoms.") from None
-    return FFDHEKeyExchange(p, g, server_public, client_public, FFDHE2048_ORDER)
+        raise QSploitError("SERVER_SIGNATURE_FAILED", "The certificate key does not verify the captured parameters and hello randoms.") from None
+
+
+def _ecdhe_key_exchange(server_wire: bytes, client_wire: bytes, certificate_wire: bytes,
+                        client_random: bytes, server_random: bytes, client_extensions: dict[int, bytes],
+                        server_extensions: dict[int, bytes]) -> ECDHEKeyExchange:
+    reader = _Reader(server_wire[4:])
+    if reader.number(1) != 3:
+        raise QSploitError("UNSUPPORTED_GROUP", "Only named-curve ECDHE is supported.")
+    group, server_public = reader.number(2), reader.vector(1)
+    parameters_wire = reader.data[:reader.pos]
+    if group != 23:
+        raise QSploitError("UNSUPPORTED_GROUP", "ECDHE recovery currently supports secp256r1 only.")
+    client_reader = _Reader(client_wire[4:])
+    client_public = client_reader.vector(1)
+    client_reader.end()
+    validate_p256_point(server_public)
+    validate_p256_point(client_public)
+    if 10 in client_extensions:
+        groups_reader = _Reader(client_extensions[10])
+        offered = groups_reader.vector(2)
+        groups_reader.end()
+        if not offered or len(offered) % 2:
+            raise QSploitError("INVALID_TLS", "The client's supported groups have invalid framing.")
+        if group not in [int.from_bytes(offered[i:i + 2], "big") for i in range(0, len(offered), 2)]:
+            raise QSploitError("INVALID_TLS", "The selected ECDHE group was not offered by the client.")
+    for extensions in (client_extensions, server_extensions):
+        if 11 in extensions:
+            formats_reader = _Reader(extensions[11])
+            formats = formats_reader.vector(1)
+            formats_reader.end()
+            if 0 not in formats:
+                raise QSploitError("UNSUPPORTED_POINT_FORMAT", "ECDHE recovery requires negotiated uncompressed points.")
+    if 11 in server_extensions and 11 not in client_extensions:
+        raise QSploitError("INVALID_TLS", "The server returned an unoffered EC point-formats extension.")
+    _verify_server_signature(reader, parameters_wire, certificate_wire, client_random, server_random, client_extensions)
+    return ECDHEKeyExchange(group, server_public, client_public)
 
 
 def parse_tls(connection: TCPConnection) -> ParsedTLS:
@@ -276,7 +318,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                  tls_version=None, cipher_suite=None, compression=None, sni=None, alpn=None,
                  authentication=None, kex="unknown", selected_group=None, psk_selected=False,
                  resumed=False, ems=None, client_hello_version=None, client_random=None,
-                 server_random=None, rsa=None, records=(), clear_handshakes=(), dhe=None)
+                 server_random=None, rsa=None, records=(), clear_handshakes=(), dhe=None, ecdhe=None)
     blockers, warnings = list(connection.blockers), list(connection.warnings)
     a, b = connection.a_to_b, connection.b_to_a
     looks_tls = lambda s: len(s) >= 3 and s[0] in (20, 21, 22, 23, 24) and s[1] == 3 and s[2] <= 4
@@ -391,16 +433,24 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                     state["selected_group"] = 256
                 elif not state["resumed"]:
                     blockers.append("INCOMPLETE_HANDSHAKE")
+            if kex == "ecdhe" and sh["suite"] in SUPPORTED_ECDHE_GCM_SUITES:
+                skes = [h for h in bh if h.wire[0] == 12]
+                if len(certs) == 1 and len(skes) == 1 and len(ckes) == 1:
+                    state["ecdhe"] = _ecdhe_key_exchange(skes[0].wire, ckes[0].wire, certs[0].wire,
+                                                          ch["random"], sh["random"], ch["ext"], sh["ext"])
+                    state["selected_group"] = state["ecdhe"].group
+                elif not state["resumed"]:
+                    blockers.append("INCOMPLETE_HANDSHAKE")
             if version != 0x0303:
                 blockers.append("UNSUPPORTED_TLS_VERSION")
-            if kex not in ("rsa_transport", "dhe"):
+            if kex not in ("rsa_transport", "dhe", "ecdhe"):
                 blockers.append("UNSUPPORTED_KEX")
             if sh["suite"] not in SUPPORTED_TLS12_GCM_SUITES:
                 blockers.append("UNSUPPORTED_CIPHER")
             if sh["compression"] != 0:
                 blockers.append("UNSUPPORTED_COMPRESSION")
-            if not state["resumed"] and kex in ("rsa_transport", "dhe"):
-                if not (state["rsa"] if kex == "rsa_transport" else state["dhe"]) or not any(h.wire[0] == 14 for h in bh):
+            if not state["resumed"] and kex in ("rsa_transport", "dhe", "ecdhe"):
+                if not state[{"rsa_transport": "rsa", "dhe": "dhe", "ecdhe": "ecdhe"}[kex]] or not any(h.wire[0] == 14 for h in bh):
                     blockers.append("INCOMPLETE_HANDSHAKE")
                 client_kinds = [h.wire[0] for h in ah]
                 server_kinds = [h.wire[0] for h in bh]
@@ -429,9 +479,9 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
         code = session.blockers[0]
         raise QSploitError(code, f"This capture cannot enter recovery: {code.replace('_', ' ').lower()}.")
     if session.protocol != "tls" or session.tls_version != 0x0303:
-        raise QSploitError("UNSUPPORTED_TLS_VERSION", "Recovery currently supports full TLS 1.2 RSA or supported DHE sessions only.")
+        raise QSploitError("UNSUPPORTED_TLS_VERSION", "Recovery currently supports full TLS 1.2 RSA or supported ephemeral sessions only.")
     if session.cipher_suite not in SUPPORTED_TLS12_GCM_SUITES:
-        raise QSploitError("UNSUPPORTED_CIPHER", "Decryption currently supports TLS 1.2 RSA/DHE with AES-128-GCM/SHA-256 or AES-256-GCM/SHA-384.")
+        raise QSploitError("UNSUPPORTED_CIPHER", "Decryption currently supports TLS 1.2 RSA/DHE/ECDHE with AES-128-GCM/SHA-256 or AES-256-GCM/SHA-384.")
     if session.compression != 0 or session.ems is None or session.resumed:
         raise QSploitError("INCOMPLETE_HANDSHAKE", "The full uncompressed TLS negotiation is required.")
     if session.kex == "rsa_transport" and session.rsa is not None and session.cipher_suite in SUPPORTED_RSA_GCM_SUITES:
@@ -440,4 +490,11 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
         key = session.dhe
         validate_ffdhe2048(key.p, key.g, key.order, key.server_public, key.client_public)
         return FFDLogProblem(key.p, key.g, key.server_public, key.order)
+    if session.kex == "ecdhe" and session.ecdhe is not None and session.cipher_suite in SUPPORTED_ECDHE_GCM_SUITES:
+        key = session.ecdhe
+        if key.group != 23:
+            raise QSploitError("UNSUPPORTED_GROUP", "ECDHE recovery currently supports secp256r1 only.")
+        validate_p256_point(key.server_public)
+        validate_p256_point(key.client_public)
+        return ECDLogProblem("secp256r1", key.server_public)
     raise QSploitError("UNSUPPORTED_KEX", "The selected key exchange or its captured public parameters are unsupported.")

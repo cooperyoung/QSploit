@@ -95,7 +95,7 @@ def test_ionq_requires_provider_job_and_preserves_probability_provenance():
 
 def test_bad_factor_pair_is_reverified_in_parent():
     with pytest.raises(QSploitError) as error:
-        verify_recovery(PROBLEM,quantum_result(factors=RSAFactors(3,7)),ExecutionOptions('aer'))
+        verify_recovery(PROBLEM,quantum_result(secret=RSAFactors(3,7)),ExecutionOptions('aer'))
     assert error.value.code == 'INVALID_FACTOR_PAIR'
 
 

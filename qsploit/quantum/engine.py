@@ -13,11 +13,13 @@ import time
 
 from qsploit.models import (ExecutionOptions, Progress, QSploitError, Recovery, Report,
                             RSAFactors, RSAProblem, FFDLogProblem, FFDLogSecret,
+                            ECDLogProblem, ECDLogSecret,
                             PublicProblem, RecoveredSecret)
 from qsploit.groups import validate_ffdhe2048
 
 FACTOR_FILE = Path(__file__).resolve().parent.parent / "demo" / "factors.json"
 DLOG_FILE = Path(__file__).resolve().parent.parent / "demo" / "dlog.json"
+EC_DLOG_FILE = Path(__file__).resolve().parent.parent / "demo" / "ec_dlog.json"
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,11 @@ def validate_problem(problem: PublicProblem) -> None:
             raise QSploitError("INVALID_MODULUS", "RSA modulus must be an integer greater than one, at most 16384 bits.")
     elif isinstance(problem, FFDLogProblem) and problem.kind == "ff_dlog":
         validate_ffdhe2048(problem.p, problem.g, problem.order, problem.y)
+    elif isinstance(problem, ECDLogProblem) and problem.kind == "ec_dlog":
+        if problem.curve != "secp256r1":
+            raise QSploitError("UNSUPPORTED_GROUP", "Elliptic-curve recovery currently supports secp256r1 only.")
+        from qsploit.groups import validate_p256_point
+        validate_p256_point(problem.public_point)
     else:
         raise QSploitError("UNSUPPORTED_PROBLEM", "The mathematical problem type is not supported.")
 
@@ -106,6 +113,15 @@ def verify_secret(problem: PublicProblem, secret: RecoveredSecret) -> None:
                 or not 1 <= secret.x < problem.order
                 or pow(problem.g, secret.x, problem.p) != problem.y):
             raise QSploitError("INVALID_DLOG_RESULT", "The recovered exponent does not match the public finite-field problem.")
+    elif isinstance(problem, ECDLogProblem):
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        from qsploit.groups import P256_ORDER
+        if not isinstance(secret, ECDLogSecret) or type(secret.x) is not int or not 1 <= secret.x < P256_ORDER:
+            raise QSploitError("INVALID_DLOG_RESULT", "The recovered P-256 scalar has an invalid type or range.")
+        derived = ec.derive_private_key(secret.x, ec.SECP256R1()).public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        if derived != problem.public_point:
+            raise QSploitError("INVALID_DLOG_RESULT", "The recovered scalar does not reproduce the captured P-256 public point.")
 
 
 def dlog_registry_key(problem: FFDLogProblem) -> str:
@@ -115,17 +131,28 @@ def dlog_registry_key(problem: FFDLogProblem) -> str:
     return ":".join(format(value, "x") for value in (problem.p, problem.g, problem.y, problem.order))
 
 
+def ec_registry_key(problem: ECDLogProblem) -> str:
+    validate_problem(problem)
+    if not isinstance(problem, ECDLogProblem):
+        raise QSploitError("UNSUPPORTED_PROBLEM", "This problem does not request an elliptic-curve discrete logarithm.")
+    return problem.curve + ":" + problem.public_point.hex()
+
+
 def known_secret(problem: PublicProblem) -> RecoveredSecret:
     validate_problem(problem)
     if isinstance(problem, RSAProblem):
         return known_factors(problem)
-    key = dlog_registry_key(problem)
+    if isinstance(problem, FFDLogProblem):
+        key, path = dlog_registry_key(problem), DLOG_FILE
+    else:
+        key, path = ec_registry_key(problem), EC_DLOG_FILE
     try:
-        entries = json.loads(DLOG_FILE.read_text(encoding="utf-8"))
+        entries = json.loads(path.read_text(encoding="utf-8"))
         item = entries.get(key)
         if item is None:
-            raise QSploitError("FIXTURE_NOT_FOUND", "No known test exponent matches this complete public finite-field problem.")
-        secret = FFDLogSecret(int(item["x"], 16))
+            raise QSploitError("FIXTURE_NOT_FOUND", "No known test scalar matches this complete public cryptographic problem.")
+        value = int(item["x"], 16)
+        secret = FFDLogSecret(value) if isinstance(problem, FFDLogProblem) else ECDLogSecret(value)
     except QSploitError:
         raise
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -154,8 +181,8 @@ def recover(problem: PublicProblem, options: ExecutionOptions, report: Report) -
         report(Progress("verifying_factors" if isinstance(problem, RSAProblem) else "verifying_discrete_log"))
         verify_secret(problem, secret)
         return Recovery(secret, "fixture_lookup", "none", None, ())
-    if isinstance(problem, FFDLogProblem):
-        raise QSploitError("UNSUPPORTED_PROBLEM", "A quantum finite-field discrete-logarithm solver is not implemented. No fixture fallback was used.")
+    if isinstance(problem, (FFDLogProblem, ECDLogProblem)):
+        raise QSploitError("UNSUPPORTED_PROBLEM", "A quantum discrete-logarithm solver is not implemented. No fixture fallback was used.")
     # Import lazily: the complete classical/demo application needs no Qiskit.
     from .backends import run_aer, run_ionq
     from .shor import factor_shor

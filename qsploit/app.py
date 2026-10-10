@@ -290,6 +290,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             problem = problem_for(selected)
             options = settings.execution()
             job = new_job(sid, options.backend)
+            job.recovery_problem = problem.kind
             state.streams.pop(sid,None); state.exchanges.pop(sid,None)
             state.decrypt_states[sid] = "running"
             state.jobs[job.id] = job
@@ -304,6 +305,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if request.backend.startswith("ionq") and (not settings.target or not os.getenv("IONQ_API_KEY")):
                 raise QSploitError("BACKEND_UNAVAILABLE", "IonQ requires an explicitly configured target and credentials.")
             job = new_job(None, request.backend)
+            job.recovery_problem = "rsa_factor"
             state.jobs[job.id] = job
             state.active_task = asyncio.create_task(execute(job,RSAProblem(request.n),settings.execution(request.backend),None))
             return job

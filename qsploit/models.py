@@ -62,6 +62,12 @@ class FFDHEKeyExchange:
     order: int
 
 @dataclass(frozen=True)
+class ECDHEKeyExchange:
+    group: int
+    server_public: bytes
+    client_public: bytes
+
+@dataclass(frozen=True)
 class ParsedTLS:
     id: str
     protocol: Literal["tls", "tcp", "unknown"]
@@ -87,6 +93,7 @@ class ParsedTLS:
     blockers: tuple[str, ...]
     warnings: tuple[str, ...]
     dhe: FFDHEKeyExchange | None = None
+    ecdhe: ECDHEKeyExchange | None = None
 
 @dataclass(frozen=True)
 class RSAProblem:
@@ -110,8 +117,18 @@ class FFDLogProblem:
 class FFDLogSecret:
     x: int = field(repr=False)
 
-PublicProblem = RSAProblem | FFDLogProblem
-RecoveredSecret = RSAFactors | FFDLogSecret
+@dataclass(frozen=True)
+class ECDLogProblem:
+    curve: Literal["secp256r1", "x25519"]
+    public_point: bytes
+    kind: Literal["ec_dlog"] = "ec_dlog"
+
+@dataclass(frozen=True)
+class ECDLogSecret:
+    x: int = field(repr=False)
+
+PublicProblem = RSAProblem | FFDLogProblem | ECDLogProblem
+RecoveredSecret = RSAFactors | FFDLogSecret | ECDLogSecret
 
 @dataclass(frozen=True)
 class ExecutionOptions:

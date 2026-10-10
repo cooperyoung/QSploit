@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Development-only genuine TLS 1.2 DHE_RSA captures; no QSploit imports.
+"""Development-only genuine TLS 1.2 DHE/ECDHE_RSA captures; no QSploit imports.
 
 A tlslite-ng 0.8.2 server and independent OpenSSL client use their normal RNGs
 and TLS wire implementations. A temporary observer records the server's random
-FFDH exponent by calling the original get_random_private_key unchanged.
+FFDH or P-256 exponent by calling the original get_random_private_key unchanged.
 Only explicit known-test discrete logs are saved in the demo registry. Private
 certificate keys and OpenSSL session-key logs live in a TemporaryDirectory.
 Requires the project's fixture extra and tcpdump capture access.
@@ -24,47 +24,62 @@ import threading
 
 import tlslite
 from tlslite.api import HandshakeSettings, TLSConnection, X509, X509CertChain, parsePEMKey
-from tlslite.keyexchange import FFDHKeyExchange
+from tlslite.keyexchange import ECDHKeyExchange, FFDHKeyExchange
 from tlslite.mathtls import RFC7919_GROUPS
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 from make_fixtures import (DEMO, FIXTURES, PacketCapture, b64, http_payloads,
                            identity, listener, packet_stats, sha)
 
 
-def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl):
+def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, family='dhe'):
     requests,responses,body_oracles = http_payloads()
     server_received,server_sent,client_received = bytearray(),bytearray(),bytearray()
     observed_keys,errors = [],[]
     details = {}
     port = sock.getsockname()[1]
-    expected_cipher = {'aes128gcm':0x009e,'aes256gcm':0x009f}[cipher_name]
-    openssl_cipher = {'aes128gcm':'DHE-RSA-AES128-GCM-SHA256','aes256gcm':'DHE-RSA-AES256-GCM-SHA384'}[cipher_name]
+    expected_cipher = ({'aes128gcm':0x009e,'aes256gcm':0x009f} if family=='dhe'
+                       else {'aes128gcm':0xc02f,'aes256gcm':0xc030})[cipher_name]
+    openssl_cipher = ('DHE' if family=='dhe' else 'ECDHE')+'-RSA-'+{
+        'aes128gcm':'AES128-GCM-SHA256','aes256gcm':'AES256-GCM-SHA384'}[cipher_name]
     keylog = temp/f'{port}-openssl.keys'
     settings = HandshakeSettings()
     settings.minVersion = settings.maxVersion = (3,3)
     settings.versions = [(3,3)]
-    settings.keyExchangeNames = ['dhe_rsa']
+    settings.keyExchangeNames = ['dhe_rsa' if family=='dhe' else 'ecdhe_rsa']
     settings.cipherNames = [cipher_name]
     settings.macNames = ['aead']
     settings.dhGroups = ['ffdhe2048']
     # Older TLS1.2 clients may omit finite-field group offers; also configure
     # the standard explicit fallback, rather than tlslite's RFC5054 default.
     settings.dhParams = RFC7919_GROUPS[0]
+    if family=='p256':
+        settings.eccCurves = ['secp256r1']
+        settings.defaultCurve = 'secp256r1'
+        settings.keyShares = ['secp256r1']
+        settings.ec_point_formats = [0]
     settings.rsaSigHashes = ['sha256']
     settings.rsaSchemes = ['pkcs1']
     settings.useExtendedMasterSecret = ems
     settings.requireExtendedMasterSecret = ems
     settings.ticketKeys = []
-    original = FFDHKeyExchange.get_random_private_key
+    kex_class = FFDHKeyExchange if family=='dhe' else ECDHKeyExchange
+    original = kex_class.get_random_private_key
 
     def observe_generated_exponent(kex):
         # Passive observation only: invoke the library's unmodified random
         # sampler and return exactly the sampled integer to the TLS endpoint.
-        x = original(kex)
-        p,g = kex.prime,kex.generator
-        observed_keys.append({'p':p,'g':g,'y':pow(g,x,p),'order':(p-1)//2,'x':x})
-        return x
+        private = original(kex)
+        if family=='dhe':
+            p,g = kex.prime,kex.generator
+            observed_keys.append({'p':p,'g':g,'y':pow(g,private,p),'order':(p-1)//2,'x':private})
+        else:
+            if kex.group!=23:
+                raise RuntimeError('Observer expected the P-256 named group')
+            observed_keys.append({'curve':'secp256r1','public_point':bytes(kex.calc_public_value(private,'uncompressed')),
+                                  'x':private.privkey.secret_multiplier})
+        return private
 
     def serve():
         raw = None
@@ -110,14 +125,14 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl):
 
     # Only this server thread performs TLS in this Python process. The peer is
     # a separate OpenSSL process and cannot use this observer or registry.
-    FFDHKeyExchange.get_random_private_key = observe_generated_exponent
+    kex_class.get_random_private_key = observe_generated_exponent
     process = None
     thread = threading.Thread(target=serve,daemon=True)
     reader = None
     try:
         thread.start()
         command = [openssl,'s_client','-connect',f'127.0.0.1:{port}','-servername','vault.qsploit.test',
-                   '-tls1_2','-cipher',openssl_cipher,'-groups','ffdhe2048','-sigalgs','rsa_pkcs1_sha256',
+                   '-tls1_2','-cipher',openssl_cipher,'-groups','ffdhe2048' if family=='dhe' else 'P-256','-sigalgs','rsa_pkcs1_sha256',
                    '-alpn','http/1.1','-quiet','-no_ign_eof','-no_ticket','-keylogfile',str(keylog)]
         if not ems:
             command += ['-no_ems']
@@ -151,7 +166,7 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl):
         if process.returncode != 0 or errors or thread.is_alive():
             raise RuntimeError(f'TLS endpoint failed: {errors}; {process.stderr.read().decode()}')
     finally:
-        FFDHKeyExchange.get_random_private_key = original
+        kex_class.get_random_private_key = original
         if process is not None and process.poll() is None:
             process.kill()
             process.wait(timeout=5)
@@ -164,24 +179,34 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl):
     if client_random.lower() != details['client_random_hex'] or master_secret.lower() != details['master_secret_hex']:
         raise RuntimeError('Independent OpenSSL/tlslite master-secret oracles disagree')
     if len(observed_keys) != 1:
-        raise RuntimeError('Expected one independently random server FFDH exponent')
+        raise RuntimeError('Expected one independently random server ephemeral exponent')
     key = observed_keys[0]
-    if (key['g'],key['p'])!=RFC7919_GROUPS[0] or not 1<key['x']<key['order'] or pow(key['g'],key['x'],key['p'])!=key['y']:
-        raise RuntimeError('Invalid observed FFDHE2048 key')
+    if family=='dhe':
+        if (key['g'],key['p'])!=RFC7919_GROUPS[0] or not 1<key['x']<key['order'] or pow(key['g'],key['x'],key['p'])!=key['y']:
+            raise RuntimeError('Invalid observed FFDHE2048 key')
+        public = {field:format(key[field],'x') for field in ('p','g','y','order')}
+    else:
+        independent_public = ec.derive_private_key(key['x'],ec.SECP256R1()).public_key().public_bytes(
+            serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint)
+        if len(key['public_point'])!=65 or key['public_point'][0]!=4 or independent_public!=key['public_point']:
+            raise RuntimeError('Invalid observed P-256 key')
+        public = {'curve':key['curve'],'public_point':key['public_point'].hex()}
     details.update(c2s_base64=b64(bytes(server_received)),s2c_base64=b64(bytes(client_received)),
-                   mode='dhe_ems' if ems else 'dhe_noems',prf_hash='sha256' if cipher_name=='aes128gcm' else 'sha384',
-                   public_problem={field:format(key[field],'x') for field in ('p','g','y','order')},
+                   mode=family+('_ems' if ems else '_noems'),prf_hash='sha256' if cipher_name=='aes128gcm' else 'sha384',
+                   public_problem=public,
                    endpoint_observations={'server_received_sha256':sha(bytes(server_received)),
                         'server_sent_sha256':sha(bytes(server_sent)),'client_received_sha256':sha(bytes(client_received)),
                         'client_sent_sha256':sha(b''.join(requests)),
                         'master_secret_oracle':'independent OpenSSL CLIENT_RANDOM keylog matched tlslite server session master; generation-only logs deleted',
-                        'recovery_oracle':'passive observer of original tlslite-ng FFDHKeyExchange.get_random_private_key; RNG and returned exponent unchanged'},
+                        'recovery_oracle':f'passive observer of original tlslite-ng {kex_class.__name__}.get_random_private_key; RNG and returned exponent unchanged'},
                    exchanges=[{'request_base64':b64(a),'response_base64':b64(b)} for a,b in zip(requests,responses)],**body_oracles)
     return details,key
 
 
 def registry_key(public):
     # Canonical registry encoding is coordinated with the quantum component.
+    if 'curve' in public:
+        return public['curve']+':'+public['public_point']
     return ':'.join(public[field] for field in ('p','g','y','order'))
 
 
@@ -189,6 +214,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--interface',default='lo0' if sys.platform=='darwin' else 'lo')
     parser.add_argument('--openssl',default=shutil.which('openssl') or 'openssl')
+    parser.add_argument('--family',choices=['dhe','p256'],default='dhe',help='Generate only this family, preserving other captures')
     args = parser.parse_args()
     if tlslite.__version__ != '0.8.2':
         raise RuntimeError('The development observer is verified against tlslite-ng 0.8.2 only')
@@ -197,11 +223,13 @@ def main():
              ('tls12-dhe-aes256-ems','aes256gcm',True,True),
              ('tls12-dhe-aes256-noems','aes256gcm',False,True),
              ('tls12-dhe-unknown','aes128gcm',True,False)]
+    if args.family=='p256':
+        cases = [(name.replace('tls12-dhe-','tls12-ecdhe-p256-'),cipher,ems,known) for name,cipher,ems,known in cases]
     names = {name+'.pcap' for name,_,_,_ in cases}
     manifest = json.loads((FIXTURES/'manifest.json').read_text())
     preserved = {record['file']:sha((FIXTURES/record['file']).read_bytes())
                  for record in manifest['captures'] if record['file'] not in names}
-    registry_path = DEMO/'dlog.json'
+    registry_path = DEMO/('dlog.json' if args.family=='dhe' else 'ec_dlog.json')
     registry = json.loads(registry_path.read_text()) if registry_path.exists() else {}
     for name,_,_,_ in cases:
         prior = FIXTURES/(name+'.expected.json')
@@ -213,10 +241,10 @@ def main():
                  'tcpdump':subprocess.check_output([shutil.which('tcpdump') or 'tcpdump','--version'],stderr=subprocess.STDOUT,text=True).splitlines()[0],
                  'os':platform.platform(),'interface':args.interface,'generated_at_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
                  'packet_provenance':'Unmodified OS packets captured by tcpdump from real loopback TCP sockets; TLS generated by independent OpenSSL client and tlslite-ng server.',
-                 'observer':'Passive original FFDH random-exponent return observer; no RNG, record, handshake or packet replacement.'}
-    with tempfile.TemporaryDirectory(prefix='qsploit-dhe-') as temporary:
+                 'observer':f'Passive original {args.family} random-exponent return observer; no RNG, record, handshake or packet replacement.'}
+    with tempfile.TemporaryDirectory(prefix='qsploit-'+args.family+'-') as temporary:
         temp = Path(temporary)
-        _,cert_path,signing_key = identity(temp,'dhe-signing')
+        _,cert_path,signing_key = identity(temp,args.family+'-signing')
         cert = X509()
         cert.parse(cert_path.read_text())
         chain = X509CertChain([cert])
@@ -227,7 +255,7 @@ def main():
             sock = listener()
             path = temp/(name+'.pcap')
             with PacketCapture(path,args.interface,[sock.getsockname()[1]]) as capture:
-                details,key = exchange(sock,chain,tls_private,temp,cipher,ems,args.openssl)
+                details,key = exchange(sock,chain,tls_private,temp,cipher,ems,args.openssl,args.family)
             lookup = registry_key(details['public_problem'])
             record = {'capture':path.name,'sha256':sha(path.read_bytes()),'generator':generator,
                       'recovery_registry_key':lookup,'recovery_secret_bundled':known,**details,'tcpdump_log':capture.log}
@@ -249,7 +277,7 @@ def main():
     for filename,digest in preserved.items():
         if sha((FIXTURES/filename).read_bytes())!=digest:
             raise RuntimeError(f'Existing capture changed: {filename}')
-    print('Complete: previous PCAPs preserved; ephemeral x fixtures only in dlog registry; signing private key and OpenSSL keylogs deleted.',flush=True)
+    print(f'Complete: previous PCAPs preserved; ephemeral x fixtures only in {registry_path.name}; signing private key and OpenSSL keylogs deleted.',flush=True)
 
 
 if __name__=='__main__':

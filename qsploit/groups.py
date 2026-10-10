@@ -1,10 +1,24 @@
 """Public mathematical parameters shared by classical and quantum components.
 
-Only the RFC 7919 Appendix A.1 ffdhe2048 group is implemented. No capture,
+The implemented groups are RFC 7919 ffdhe2048 and secp256r1. No capture,
 handshake, provider, or secret-fixture data belongs in this module.
 Source: https://www.rfc-editor.org/rfc/rfc7919#appendix-A.1
 """
+from cryptography.hazmat.primitives.asymmetric import ec
+
 from .models import QSploitError
+
+P256_ORDER = int("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
+
+
+def validate_p256_point(public_point: bytes) -> ec.EllipticCurvePublicKey:
+    """Require a finite on-curve uncompressed point; P-256's cofactor is one."""
+    if type(public_point) is not bytes or len(public_point) != 65 or public_point[0] != 4:
+        raise QSploitError("INVALID_EC_PUBLIC", "P-256 recovery requires a 65-byte uncompressed public point.")
+    try:
+        return ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public_point)
+    except ValueError:
+        raise QSploitError("INVALID_EC_PUBLIC", "The captured P-256 public point is not on the selected curve.") from None
 
 FFDHE2048_P = int("""
 FFFFFFFF FFFFFFFF ADF85458 A2BB4A9A AFDC5620 273D3CF1

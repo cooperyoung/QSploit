@@ -14,7 +14,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | Static RSA | AES-128-GCM / SHA-256 | **Verified**: EMS, non-EMS, ticket issuance; RSA-2048 factors |
 | TLS 1.2 | Static RSA | AES-256-GCM / SHA-384 | **Verified**: EMS and non-EMS; RSA-2048 factors |
 | TLS 1.2 | DHE_RSA, ffdhe2048 | AES-128/256-GCM | **Verified**: EMS and non-EMS; finite-field exponent |
-| TLS 1.2 | ECDHE P-256, X25519 | AES-GCM | Detection only; planned after DHE |
+| TLS 1.2 | ECDHE_RSA P-256 | AES-128/256-GCM | **Verified**: EMS and non-EMS; EC scalar |
+| TLS 1.2 | ECDHE_RSA X25519 | AES-GCM | Next extension |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-GCM | Detection only; planned after TLS 1.2 ECDHE |
 | TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
@@ -64,3 +65,20 @@ Only ffdhe2048 and RSA signature schemes SHA-256/384/512 (PKCS#1 or PSS) are
 implemented here. Other finite-field groups and SHA-1 signatures remain explicit
 unsupported cases. The RSA order-finding solver is unchanged. No quantum
 finite-field discrete-log solver or cloud DLP execution is claimed.
+
+## Extension 3a: ECDHE / P-256
+
+Four genuine ECDHE_RSA captures cover AES-128/256-GCM with and without EMS.
+Their OpenSSL and tlslite-ng endpoints independently agree on master secrets and
+exact HTTP bytes. The public recovery request contains only `secp256r1` and the
+server's point. Scalar verification proves `xG = Q`; the peer point remains local.
+Both points must be valid uncompressed P-256 encodings, and the local premaster
+retains the full 32-byte x-coordinate, including leading zeros.
+
+The normal upload/recovery/inspector/preview API flow and isolated runtime proof
+pass for every capture. Tests reject off-curve/compressed/infinite points, wrong
+scalars or result types, changed signed parameters, missing packets, invalid
+record tags and valid-tag incorrect Finished messages. The original 38 recovery
+boundary tests are readable again after macOS restored the offloaded file; they
+pass after the internal `Recovery.secret` field rename. No EC quantum solver is
+claimed. X25519 remains a separate next step at this checkpoint.

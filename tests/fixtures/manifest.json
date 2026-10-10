@@ -130,6 +130,61 @@
       "recovery_secret_bundled": false,
       "packet_count": 50,
       "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-aes128-ems.pcap",
+      "sha256": "690c5ded9b1fa0aa87cf3026629d01873c99fa9d85f478cce9dc1d7c80a0ae6d",
+      "size": 57817,
+      "sessions": 1,
+      "mode": "p256_ems",
+      "cipher_suite_id": 49199,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-aes128-noems.pcap",
+      "sha256": "1ebdd5adc04471b8fb6e2f82241d2f12ce02677abdd359baed1367f1923cf580",
+      "size": 57809,
+      "sessions": 1,
+      "mode": "p256_noems",
+      "cipher_suite_id": 49199,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-aes256-ems.pcap",
+      "sha256": "cafc10d174cc8ab5d4e98dcd66598d1b9db95afb17e2e0392367e939bad6957d",
+      "size": 57817,
+      "sessions": 1,
+      "mode": "p256_ems",
+      "cipher_suite_id": 49200,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-aes256-noems.pcap",
+      "sha256": "c181c8fc00dd3f361d794172a0e848fcf1ced923f2bca57618a8c2ac0f6921f2",
+      "size": 57809,
+      "sessions": 1,
+      "mode": "p256_noems",
+      "cipher_suite_id": 49200,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-ecdhe-p256-unknown.pcap",
+      "sha256": "2c05e709b36ad1f9ccb962783cbf287901e00b2fecf321d6e8a9543a5a3b9b96",
+      "size": 57817,
+      "sessions": 1,
+      "mode": "p256_ems",
+      "cipher_suite_id": 49199,
+      "recovery_secret_bundled": false,
+      "packet_count": 50,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

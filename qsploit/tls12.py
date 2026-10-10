@@ -1,4 +1,4 @@
-"""The supported TLS 1.2 RSA/DHE AES-GCM schedules and verification.
+"""The supported TLS 1.2 RSA/DHE/ECDHE AES-GCM schedules and verification.
 
 RFC 5246 sections 5, 6.3, 7.4.9; RFC 5288 section 3; RFC 7627 section 4.
 Application bytes are returned only after both Finished messages and every
@@ -11,10 +11,12 @@ import hmac
 import math
 
 from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from .models import ApplicationStreams, FFDLogSecret, ParsedTLS, QSploitError, RecoveredSecret, RSAFactors
+from .groups import P256_ORDER, validate_p256_point
+from .models import ApplicationStreams, ECDLogSecret, FFDLogSecret, ParsedTLS, QSploitError, RecoveredSecret, RSAFactors
 from .tls import MAX_HANDSHAKE_BYTES, problem_for
 
 
@@ -22,6 +24,7 @@ from .tls import MAX_HANDSHAKE_BYTES, problem_for
 CIPHER_PARAMETERS = {
     0x009c: ("sha256", 16), 0x009d: ("sha384", 32),
     0x009e: ("sha256", 16), 0x009f: ("sha384", 32),
+    0xc02f: ("sha256", 16), 0xc030: ("sha384", 32),
 }
 
 
@@ -75,6 +78,20 @@ def _transcript(session: ParsedTLS) -> tuple[bytes, tuple[bytes, ...]]:
 
 def recover_premaster(session: ParsedTLS, factors: RecoveredSecret) -> bytes:
     problem_for(session)
+    if session.kex == "ecdhe":
+        key = session.ecdhe
+        assert key is not None
+        if not isinstance(factors, ECDLogSecret):
+            raise QSploitError("INVALID_RECOVERY_RESULT", "P-256 ECDHE recovery requires a verified scalar result.")
+        if type(factors.x) is not int or not 1 <= factors.x < P256_ORDER:
+            raise QSploitError("INVALID_DLOG_RESULT", "The recovered P-256 scalar is outside the valid group range.")
+        private = ec.derive_private_key(factors.x, ec.SECP256R1())
+        public = private.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        if not hmac.compare_digest(public, key.server_public):
+            raise QSploitError("INVALID_DLOG_RESULT", "The recovered scalar does not reproduce the captured server point.")
+        # RFC 8422 section 5.10: P-256 uses the full 32-byte x-coordinate,
+        # preserving leading zeros (unlike finite-field TLS 1.2 DH).
+        return private.exchange(ec.ECDH(), validate_p256_point(key.client_public))
     if session.kex == "dhe":
         key = session.dhe
         assert key is not None

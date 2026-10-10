@@ -14,6 +14,9 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls12-dhe-aes128-ems.pcap`, `tls12-dhe-aes128-noems.pcap` | Genuine DHE_RSA/ffdhe2048 with AES-128-GCM/SHA-256, both schedules |
 | `tls12-dhe-aes256-ems.pcap`, `tls12-dhe-aes256-noems.pcap` | Genuine DHE_RSA/ffdhe2048 with AES-256-GCM/SHA-384, both schedules |
 | `tls12-dhe-unknown.pcap` | Same DHE group and signing certificate with a fresh server public share; its private exponent is not retained and lookup must fail |
+| `tls12-ecdhe-p256-aes128-ems.pcap`, `tls12-ecdhe-p256-aes128-noems.pcap` | Genuine ECDHE_RSA/P-256 with AES-128-GCM/SHA-256, both schedules |
+| `tls12-ecdhe-p256-aes256-ems.pcap`, `tls12-ecdhe-p256-aes256-noems.pcap` | Genuine ECDHE_RSA/P-256 with AES-256-GCM/SHA-384, both schedules |
+| `tls12-ecdhe-p256-unknown.pcap` | Same P-256 group and signing certificate with a fresh server public point whose private scalar is not retained |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -52,3 +55,13 @@ OpenSSL's independent `CLIENT_RANDOM` keylog is checked against the server's ses
 ```
 
 This preserves all existing RSA-family capture bytes. `dlog.json` uses lowercase hexadecimal `p:g:y:order` keys and `{ "x": "hex" }` values. A different handshake normally has a different public share and therefore no known lookup result. The registry supplies only the missing mathematical recovery result; the application must still verify that `g**x mod p == y`, derive TLS keys, authenticate every protected record and verify both Finished messages.
+
+## P-256 endpoint evidence
+
+The P-256 fixtures use the same independent OpenSSL/tlslite endpoints and the same endpoint-byte and master-secret checks. Generation forces TLS 1.2, the `secp256r1` named group (23), uncompressed 65-byte public points and RSA PKCS#1 SHA-256 ServerKeyExchange signatures. The development observer calls the original `ECDHKeyExchange.get_random_private_key` and returns the original randomly generated `SigningKey`; it records the scalar without changing the key or TLS traffic. Cryptography independently derives the public point from that scalar before the fixture is accepted.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family p256
+```
+
+This targeted command preserves all prior RSA and DHE captures. `qsploit/demo/ec_dlog.json` uses canonical lowercase `secp256r1:<uncompressed-public-point-hex>` keys and `{ "x": "hex" }` values. Only four known test scalars are retained; the fifth unknown-share capture deliberately has no recovery entry. Certificate private keys and temporary OpenSSL keylogs are deleted. Runtime recovery validates the scalar against the actual captured server point, then derives and authenticates the TLS traffic using the captured client point. No application bytes or TLS traffic secrets are in this recovery registry.
