@@ -34,7 +34,9 @@ For the required Qollab recording segment, use the prepared companion's **Run** 
 
 ## 2:15–2:45 — Honest failures and future architecture
 
-Upload `qsploit/demo/mixed-discovery.pcap`. Point out ECDHE_RSA and TLS 1.3 as classified but unsupported for decryption. “RSA in a cipher name may mean authentication, not key transport.”
+Click **Replace capture**, then **Protocol tour**. Point out the separate TLS 1.2 and TLS 1.3 sessions, DHE/ECDHE groups and negotiated suites. Recover a TLS 1.3 session through the same workflow. “Ephemeral exchanges need discrete logarithms, not certificate factoring. Known test scalars substitute that recovery, while HKDF, Finished, and authenticated decryption still run locally.”
+
+For a failure example outside the short video, upload `mixed-discovery.pcap`: some supported exchanges have no matching recovery fixture. The application reports unavailable recovery rather than inventing a key.
 
 Close with: “The working classical pipeline is ready to consume verified future recovery results. Fault-tolerant algorithms, compilation and resource management will still evolve inside the quantum component. QSploit makes the consequence visible today without pretending today's quantum computers already do it.”
 

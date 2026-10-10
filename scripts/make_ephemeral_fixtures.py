@@ -45,8 +45,8 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
     openssl_cipher = ('DHE' if family=='dhe' else 'ECDHE')+'-RSA-'+{
         'aes128gcm':'AES128-GCM-SHA256','aes256gcm':'AES256-GCM-SHA384'}[cipher_name]
     if tls13:
-        expected_cipher = 0x1301
-        openssl_cipher = 'TLS_AES_128_GCM_SHA256'
+        expected_cipher = 0x1301 if cipher_name=='aes128gcm' else 0x1302
+        openssl_cipher = 'TLS_AES_128_GCM_SHA256' if cipher_name=='aes128gcm' else 'TLS_AES_256_GCM_SHA384'
     keylog = temp/f'{port}-openssl.keys'
     settings = HandshakeSettings()
     version = (3,4) if tls13 else (3,3)
@@ -220,6 +220,9 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
             raise RuntimeError('Independent OpenSSL keylog mixes TLS connections')
         details['client_random_hex'] = next(iter(randoms))
         oracles = {label:secret.lower() for label,_,secret in key_lines}
+        secret_size = 32 if cipher_name=='aes128gcm' else 48
+        if any(len(bytes.fromhex(value))!=secret_size for value in oracles.values()):
+            raise RuntimeError('Independent TLS 1.3 secrets have the wrong negotiated hash length')
         for side in ('client','server'):
             if oracles[side.upper()+'_TRAFFIC_SECRET_0']!=details[side+'_application_traffic_secret_0_hex']:
                 raise RuntimeError('Independent OpenSSL/tlslite TLS 1.3 application-secret oracles disagree')
@@ -284,9 +287,12 @@ def main():
     parser.add_argument('--family',choices=['dhe','p256','x25519'],default='dhe',help='Generate only this family, preserving other captures')
     parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 AES-128 baseline and unknown-share case')
     parser.add_argument('--key-update',action='store_true',help='Generate a separate TLS 1.3 capture with a genuine server KeyUpdate')
+    parser.add_argument('--aes256',action='store_true',help='Generate the gated TLS 1.3 P-256 AES-256/SHA-384 family only')
     args = parser.parse_args()
     if args.key_update and not args.tls13:
         parser.error('--key-update requires --tls13')
+    if args.aes256 and (not args.tls13 or args.family!='p256' or args.key_update):
+        parser.error('The current AES-256 TLS 1.3 gate is the P-256 baseline only')
     if args.tls13 and args.family=='dhe':
         parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
     if tlslite.__version__ != '0.8.2':
@@ -299,8 +305,11 @@ def main():
     if args.family!='dhe':
         cases = [(name.replace('tls12-dhe-','tls12-ecdhe-'+args.family+'-'),cipher,ems,known) for name,cipher,ems,known in cases]
     if args.tls13:
-        cases = [(f'tls13-{args.family}-aes128','aes128gcm',True,True),
-                 (f'tls13-{args.family}-unknown','aes128gcm',True,False)]
+        bits = 256 if args.aes256 else 128
+        cipher = f'aes{bits}gcm'
+        unknown_name = f'tls13-{args.family}-aes256-unknown' if args.aes256 else f'tls13-{args.family}-unknown'
+        cases = [(f'tls13-{args.family}-aes{bits}',cipher,True,True),
+                 (unknown_name,cipher,True,False)]
         if args.key_update:
             cases = [(f'tls13-{args.family}-aes128-keyupdate','aes128gcm',True,True)]
     names = {name+'.pcap' for name,_,_,_ in cases}

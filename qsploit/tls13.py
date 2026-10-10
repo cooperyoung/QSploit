@@ -1,4 +1,4 @@
-"""Strict TLS 1.3 full-handshake AES-128-GCM/SHA-256 decryption (RFC 8446).
+"""Strict TLS 1.3 full-handshake AES-GCM decryption (RFC 8446).
 
 All application bytes remain local and quarantined until CertificateVerify,
 both Finished messages, and every captured protected record authenticate.
@@ -19,50 +19,64 @@ from .models import ApplicationStreams, ParsedTLS, QSploitError, Record, Recover
 from .tls import MAX_HANDSHAKE_BYTES, MAX_HANDSHAKE_MESSAGES, MAX_RSA_BITS, _Reader, _alpn, _extensions, _hello, problem_for
 
 MAX_KEY_UPDATES = 32
+CIPHER_PARAMETERS = {0x1301: ("sha256", 32, 16), 0x1302: ("sha384", 48, 32)}
 
 
-def hkdf_extract(salt: bytes, ikm: bytes) -> bytes:
-    return hmac.digest(salt, ikm, "sha256")
+def cipher_parameters(cipher_suite: int) -> tuple[str, int, int]:
+    try:
+        return CIPHER_PARAMETERS[cipher_suite]
+    except KeyError:
+        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS 1.3 cipher suite is not implemented.") from None
 
 
-def hkdf_expand_label(secret: bytes, label: str | bytes, context: bytes, length: int) -> bytes:
+def hkdf_extract(salt: bytes, ikm: bytes, cipher_suite: int = 0x1301) -> bytes:
+    hash_name, _, _ = cipher_parameters(cipher_suite)
+    return hmac.digest(salt, ikm, hash_name)
+
+
+def hkdf_expand_label(secret: bytes, label: str | bytes, context: bytes, length: int, cipher_suite: int = 0x1301) -> bytes:
+    hash_name, hash_length, _ = cipher_parameters(cipher_suite)
     label = b"tls13 " + (label.encode("ascii") if isinstance(label, str) else label)
-    if not 0 <= length <= 255 * 32 or not 7 <= len(label) <= 255 or len(context) > 255:
+    if not 0 <= length <= 255 * hash_length or not 7 <= len(label) <= 255 or len(context) > 255:
         raise ValueError("invalid TLS 1.3 HKDF label/output size")
     info = length.to_bytes(2, "big") + bytes([len(label)]) + label + bytes([len(context)]) + context
     output, block = b"", b""
-    for counter in range(1, (length + 31) // 32 + 1):
-        block = hmac.digest(secret, block + info + bytes([counter]), "sha256")
+    for counter in range(1, (length + hash_length - 1) // hash_length + 1):
+        block = hmac.digest(secret, block + info + bytes([counter]), hash_name)
         output += block
     return output[:length]
 
 
-def derive_secret(secret: bytes, label: str | bytes, transcript: bytes) -> bytes:
-    return hkdf_expand_label(secret, label, hashlib.sha256(transcript).digest(), 32)
+def derive_secret(secret: bytes, label: str | bytes, transcript: bytes, cipher_suite: int = 0x1301) -> bytes:
+    hash_name, hash_length, _ = cipher_parameters(cipher_suite)
+    return hkdf_expand_label(secret, label, hashlib.new(hash_name, transcript).digest(), hash_length, cipher_suite)
 
 
-def traffic_key_iv(secret: bytes) -> tuple[bytes, bytes]:
-    return hkdf_expand_label(secret, "key", b"", 16), hkdf_expand_label(secret, "iv", b"", 12)
+def traffic_key_iv(secret: bytes, cipher_suite: int = 0x1301) -> tuple[bytes, bytes]:
+    _, _, key_length = cipher_parameters(cipher_suite)
+    return hkdf_expand_label(secret, "key", b"", key_length, cipher_suite), hkdf_expand_label(secret, "iv", b"", 12, cipher_suite)
 
 
-def finished_verify_data(traffic_secret: bytes, transcript: bytes) -> bytes:
-    key = hkdf_expand_label(traffic_secret, "finished", b"", 32)
-    return hmac.digest(key, hashlib.sha256(transcript).digest(), "sha256")
+def finished_verify_data(traffic_secret: bytes, transcript: bytes, cipher_suite: int = 0x1301) -> bytes:
+    hash_name, hash_length, _ = cipher_parameters(cipher_suite)
+    key = hkdf_expand_label(traffic_secret, "finished", b"", hash_length, cipher_suite)
+    return hmac.digest(key, hashlib.new(hash_name, transcript).digest(), hash_name)
 
 
-def handshake_secrets(shared: bytes, hello_transcript: bytes) -> tuple[bytes, bytes, bytes]:
-    early = hkdf_extract(bytes(32), bytes(32))
-    handshake = hkdf_extract(derive_secret(early, "derived", b""), shared)
-    master = hkdf_extract(derive_secret(handshake, "derived", b""), bytes(32))
-    return derive_secret(handshake, "c hs traffic", hello_transcript), derive_secret(handshake, "s hs traffic", hello_transcript), master
+def handshake_secrets(shared: bytes, hello_transcript: bytes, cipher_suite: int = 0x1301) -> tuple[bytes, bytes, bytes]:
+    _, hash_length, _ = cipher_parameters(cipher_suite)
+    early = hkdf_extract(bytes(hash_length), bytes(hash_length), cipher_suite)
+    handshake = hkdf_extract(derive_secret(early, "derived", b"", cipher_suite), shared, cipher_suite)
+    master = hkdf_extract(derive_secret(handshake, "derived", b"", cipher_suite), bytes(hash_length), cipher_suite)
+    return derive_secret(handshake, "c hs traffic", hello_transcript, cipher_suite), derive_secret(handshake, "s hs traffic", hello_transcript, cipher_suite), master
 
 
-def decrypt_record(record: Record, traffic_secret: bytes, sequence: int) -> tuple[int, bytes]:
+def decrypt_record(record: Record, traffic_secret: bytes, sequence: int, cipher_suite: int = 0x1301) -> tuple[int, bytes]:
     if record.content_type != 23 or record.version != 0x0303 or not 17 <= len(record.fragment) <= 16384 + 256:
         raise QSploitError("INVALID_TLS", "A protected TLS 1.3 record has an invalid outer header or size.")
     if not 0 <= sequence < 2**64:
         raise QSploitError("RESOURCE_LIMIT", "The TLS record sequence number is exhausted.")
-    key, iv = traffic_key_iv(traffic_secret)
+    key, iv = traffic_key_iv(traffic_secret, cipher_suite)
     nonce = bytes(a ^ b for a, b in zip(iv, sequence.to_bytes(12, "big")))
     aad = b"\x17\x03\x03" + len(record.fragment).to_bytes(2, "big")
     try:
@@ -110,7 +124,8 @@ def _certificate_key(wire: bytes):
     return leaf
 
 
-def _certificate_verify(wire: bytes, key, transcript: bytes, client_extensions: dict[int, bytes]) -> None:
+def _certificate_verify(wire: bytes, key, transcript: bytes, client_extensions: dict[int, bytes], cipher_suite: int = 0x1301) -> None:
+    hash_name, _, _ = cipher_parameters(cipher_suite)
     reader = _Reader(wire[4:])
     scheme, signature = reader.number(2), reader.vector(2); reader.end()
     digest_types = {0x0804: hashes.SHA256, 0x0805: hashes.SHA384, 0x0806: hashes.SHA512}
@@ -121,7 +136,7 @@ def _certificate_verify(wire: bytes, key, transcript: bytes, client_extensions: 
     if not algorithms or len(algorithms) % 2 or scheme not in [int.from_bytes(algorithms[i:i+2], "big") for i in range(0, len(algorithms), 2)]:
         raise QSploitError("INVALID_TLS", "The CertificateVerify signature scheme was not offered by the client.")
     digest = digest_types[scheme]()
-    signed = b" " * 64 + b"TLS 1.3, server CertificateVerify\x00" + hashlib.sha256(transcript).digest()
+    signed = b" " * 64 + b"TLS 1.3, server CertificateVerify\x00" + hashlib.new(hash_name, transcript).digest()
     try:
         key.verify(signature, signed, padding.PSS(mgf=padding.MGF1(digest), salt_length=digest.digest_size), digest)
     except (InvalidSignature, ValueError):
@@ -165,6 +180,8 @@ def _new_session_ticket(wire: bytes) -> None:
 
 def _direction(session: ParsedTLS, direction: str, handshake_secret: bytes, master: bytes,
                initial_transcript: bytes, client_extensions: dict[int, bytes], application_secret: bytes | None = None):
+    suite = session.cipher_suite
+    _, hash_length, _ = cipher_parameters(suite)
     transcript = initial_transcript
     secret, sequence, count, updates = handshake_secret, 0, 0, 0
     pending, application = bytearray(), bytearray()
@@ -182,7 +199,7 @@ def _direction(session: ParsedTLS, direction: str, handshake_secret: bytes, mast
         if record.content_type != 23:
             raise QSploitError("INVALID_TLS", "A TLS 1.3 protected epoch contains a cleartext or unsupported record.")
         active = True
-        kind, payload = decrypt_record(record, secret, sequence)
+        kind, payload = decrypt_record(record, secret, sequence, suite)
         sequence += 1; count += 1
         if closed:
             raise QSploitError("INVALID_TLS", "A record follows this direction's TLS close_notify.")
@@ -207,16 +224,16 @@ def _direction(session: ParsedTLS, direction: str, handshake_secret: bytes, mast
                     elif message == 11:
                         certificate_key = _certificate_key(wire)
                     elif message == 15:
-                        _certificate_verify(wire, certificate_key, transcript, client_extensions)
+                        _certificate_verify(wire, certificate_key, transcript, client_extensions, suite)
                     elif message == 20:
-                        if size != 32 or not hmac.compare_digest(wire[4:], finished_verify_data(handshake_secret, transcript)):
+                        if size != hash_length or not hmac.compare_digest(wire[4:], finished_verify_data(handshake_secret, transcript, suite)):
                             raise QSploitError("FINISHED_VERIFY_FAILED", "A TLS 1.3 Finished does not authenticate the captured transcript.")
                         if pending:
                             raise QSploitError("INVALID_TLS", "A handshake crosses the TLS 1.3 Finished key boundary.")
                         finished = True
                     transcript += wire
                     if finished:
-                        secret = (derive_secret(master, "s ap traffic", transcript) if direction == "s2c" else application_secret)
+                        secret = (derive_secret(master, "s ap traffic", transcript, suite) if direction == "s2c" else application_secret)
                         sequence = 0
                 else:
                     if message == 4 and direction == "s2c":
@@ -227,7 +244,7 @@ def _direction(session: ParsedTLS, direction: str, handshake_secret: bytes, mast
                         updates += 1
                         if updates > MAX_KEY_UPDATES:
                             raise QSploitError("RESOURCE_LIMIT", "The capture exceeds the TLS 1.3 KeyUpdate limit.")
-                        secret = hkdf_expand_label(secret, "traffic upd", b"", 32)
+                        secret = hkdf_expand_label(secret, "traffic upd", b"", hash_length, suite)
                         sequence = 0
                     elif message == 13:
                         raise QSploitError("CLIENT_AUTH_UNSUPPORTED", "Post-handshake client authentication is unsupported.")
@@ -253,8 +270,8 @@ def _direction(session: ParsedTLS, direction: str, handshake_secret: bytes, mast
 
 def decrypt_tls13(session: ParsedTLS, secret: RecoveredSecret) -> ApplicationStreams:
     problem_for(session)
-    if session.tls_version != 0x0304 or session.cipher_suite != 0x1301 or session.ecdhe is None:
-        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS 1.3 schedule supports AES-128-GCM/SHA-256 only.")
+    if session.tls_version != 0x0304 or session.cipher_suite not in CIPHER_PARAMETERS or session.ecdhe is None:
+        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS 1.3 schedule supports AES-128-GCM/SHA-256 and AES-256-GCM/SHA-384 only.")
     client = [h.wire for h in session.clear_handshakes if h.direction == "c2s"]
     server = [h.wire for h in session.clear_handshakes if h.direction == "s2c"]
     if len(client) != 1 or client[0][0] != 1 or len(server) != 1 or server[0][0] != 2:
@@ -263,9 +280,9 @@ def decrypt_tls13(session: ParsedTLS, secret: RecoveredSecret) -> ApplicationStr
     client_extensions = _hello(client[0], True)["ext"]
     if 42 in client_extensions:
         raise QSploitError("EARLY_DATA_UNSUPPORTED", "TLS 1.3 early data is not implemented.")
-    chs, shs, master = handshake_secrets(ecdhe_shared_secret(session.ecdhe, secret), hello_transcript)
+    chs, shs, master = handshake_secrets(ecdhe_shared_secret(session.ecdhe, secret), hello_transcript, session.cipher_suite)
     server_result = _direction(session, "s2c", shs, master, hello_transcript, client_extensions)
-    client_application = derive_secret(master, "c ap traffic", server_result[1])
+    client_application = derive_secret(master, "c ap traffic", server_result[1], session.cipher_suite)
     client_result = _direction(session, "c2s", chs, master, server_result[1], client_extensions, client_application)
     warnings = list(session.warnings) + server_result[5] + client_result[5]
     if not (server_result[3] and client_result[3]):

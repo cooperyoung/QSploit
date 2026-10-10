@@ -401,7 +401,7 @@ def parse_tls(connection: TCPConnection) -> ParsedTLS:
                 blockers.append("PSK_UNSUPPORTED")
             if 42 in ch["ext"]:
                 blockers.append("EARLY_DATA_UNSUPPORTED")
-            if sh["suite"] != 0x1301:
+            if sh["suite"] not in (0x1301, 0x1302):
                 blockers.append("UNSUPPORTED_CIPHER")
             if state["selected_group"] not in (23, 29):
                 blockers.append("UNSUPPORTED_GROUP")
@@ -522,8 +522,8 @@ def problem_for(session: ParsedTLS) -> PublicProblem:
         code = session.blockers[0]
         raise QSploitError(code, f"This capture cannot enter recovery: {code.replace('_', ' ').lower()}.")
     if session.protocol == "tls" and session.tls_version == 0x0304:
-        if session.cipher_suite != 0x1301:
-            raise QSploitError("UNSUPPORTED_CIPHER", "TLS 1.3 currently supports AES-128-GCM/SHA-256 only.")
+        if session.cipher_suite not in (0x1301, 0x1302):
+            raise QSploitError("UNSUPPORTED_CIPHER", "TLS 1.3 currently supports AES-128-GCM/SHA-256 and AES-256-GCM/SHA-384 only.")
         if session.psk_selected:
             raise QSploitError("PSK_UNSUPPORTED", "Selected TLS 1.3 PSKs are not recoverable from the ephemeral share alone.")
         if session.ecdhe is None or session.ecdhe.group not in (23, 29):

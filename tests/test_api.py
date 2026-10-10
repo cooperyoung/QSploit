@@ -283,3 +283,27 @@ def test_replacing_capture_invalidates_old_jobs_and_plaintext(client):
     assert client.get(f"/api/jobs/{job['id']}").status_code == 404
     assert client.get(f'/api/sessions/{sid}/http').status_code == 404
     assert replacement['sessions'][0]['decrypt_state']=='not_started'
+
+
+def test_http_decode_limitation_preserves_authenticated_bytes_and_tls_success(client, monkeypatch):
+    """Exercise the application-stage boundary after genuine TLS decryption.
+
+    The fixture remains HTTP/1.1. Injecting a decoder limitation here tests status
+    and byte retention, not a claim that this fixture negotiated HTTP/2.
+    """
+    import qsploit.app as app_module
+    def limited_decoder(streams, alpn):
+        assert streams.client_finished_verified and streams.server_finished_verified
+        raise QSploitError('HTTP2_UNSUPPORTED', 'HTTP/2 decoding is not implemented. Authenticated application bytes remain available.')
+    monkeypatch.setattr(app_module, 'parse_http', limited_decoder)
+    capture = upload(client)
+    sid = capture['sessions'][0]['id']
+    job = recover(client, sid)
+    assert job['state'] == 'succeeded' and job['error'] is None
+    assert job['client_finished_verified'] and job['server_finished_verified']
+    assert [w['code'] for w in job['warnings']] == ['HTTP2_UNSUPPORTED']
+    assert client.get('/api/captures/current').json()['sessions'][0]['decrypt_state'] == 'verified'
+    assert client.get(f'/api/sessions/{sid}/http').json() == []
+    expected = json.loads((FIXTURES / 'tls12-rsa-ems.expected.json').read_text())
+    for direction in ('c2s', 's2c'):
+        assert client.get(f'/api/sessions/{sid}/application/{direction}').content == base64.b64decode(expected[f'{direction}_base64'])

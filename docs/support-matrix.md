@@ -17,7 +17,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.2 | ECDHE_RSA P-256 | AES-128/256-GCM | **Verified**: EMS and non-EMS; EC scalar |
 | TLS 1.2 | ECDHE_RSA X25519 | AES-128/256-GCM | **Verified**: EMS and non-EMS; RFC 7748 private input |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-128-GCM / SHA-256 | **Verified**: full handshake, encrypted ALPN, ticket; X25519 genuine KeyUpdate |
-| TLS 1.3 | ECDHE P-256, X25519 | AES-256-GCM | Next protocol gate |
+| TLS 1.3 | ECDHE P-256 | AES-256-GCM / SHA-384 | **Verified**: independent 48-byte traffic-secret evidence |
+| TLS 1.3 | ECDHE X25519 | AES-256-GCM | Next protocol gate |
 | TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
@@ -126,3 +127,13 @@ server epoch, both Finished messages verify, and the second HTTP response matche
 its exact independent oracle. OpenSSL's updated traffic secret agrees with the
 server endpoint's. The same capture passes the isolated runtime proof. This adds
 genuine KeyUpdate evidence beyond the constructed record tests described above.
+
+## Extension 4c: TLS 1.3 / P-256 / AES-256-GCM
+
+The genuine 0x1302 capture uses 48-byte SHA-384 handshake, application and master
+secrets. Independent endpoints agree on these values and exact HTTP streams.
+The normal worker/API flow and isolation proof authenticate all 20 protected
+records, both Finished messages and CertificateVerify. Independent static KATs
+(cross-checked with tlslite-ng and cryptography) cover the complete schedule and
+RSA-PSS-SHA256 over a SHA-384 transcript. These vectors are explicitly synthetic,
+not claimed as published RFC examples or genuine capture evidence.

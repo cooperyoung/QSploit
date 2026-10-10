@@ -25,6 +25,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls13-x25519-aes128.pcap` | Genuine TLS 1.3 X25519, AES-128-GCM/SHA-256, RSA-PSS CertificateVerify, one NewSessionTicket and two HTTP exchanges |
 | `tls13-x25519-unknown.pcap` | Same family with a fresh server public share whose private encoding is not retained |
 | `tls13-x25519-aes128-keyupdate.pcap` | A genuine server KeyUpdate between HTTP responses; the second response uses the next application traffic secret |
+| `tls13-p256-aes256.pcap` | Genuine TLS 1.3 P-256 with AES-256-GCM/SHA-384 (`0x1302`), 48-byte traffic-secret oracles and one NewSessionTicket |
+| `tls13-p256-aes256-unknown.pcap` | Same AES-256 TLS 1.3 family with an unknown server public point |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -104,3 +106,11 @@ The separate KeyUpdate fixture invokes the server endpoint's normal `send_keyupd
 ```
 
 This command creates only the supplemental capture and preserves both baseline TLS 1.3 captures.
+
+The P-256 AES-256 fixture explicitly negotiates `TLS_AES_256_GCM_SHA384`, and the generator rejects any endpoint oracle whose secret length is not 48 bytes. Its RSA-PSS CertificateVerify uses SHA-256 (`0x0804`), independently of the cipher suite's SHA-384 transcript and key schedule. It retains the same real NewSessionTicket and HTTP exchange coverage.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family p256 --tls13 --aes256
+```
+
+This targeted command preserves every earlier AES-128 capture and registry entry.

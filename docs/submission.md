@@ -12,6 +12,8 @@ What happens after sufficiently capable quantum computation returns a cryptograp
 
 The main capture uses a controlled RSA-2048 TLS 1.2 static-RSA connection. An unmistakably labeled demo backend returns known factors matched to its actual public modulus. This is the **only** substituted step. Runtime code then recovers the RSA premaster, derives the negotiated EMS or ordinary master secret and traffic keys, verifies both Finished messages, authenticates every protected record, and reconstructs HTTP. No stored plaintext or session key is used by the application.
 
+Additional genuine captures extend the same workflow to finite-field DHE and P-256/X25519 ECDHE, including a distinct TLS 1.3 HKDF engine and real key updates. Their demo recovery material is an algorithm-specific ephemeral scalar; it is never a stored traffic key. The support matrix records each verified version/group/cipher combination.
+
 Captured response pages render inertly, with active content and linked resources removed. Query/form values come from recovered messages. The application never replays a request or invents missing server values.
 
 ## What runs on Qollab
@@ -30,15 +32,15 @@ These are toy mathematical inputs, separate from the captured RSA-2048 key. Ther
 
 - Real OS packet captures with independent endpoint plaintext and test-only master-secret oracles.
 - TCP gap/overlap/retransmission handling and negotiated TLS classification.
-- Genuine TLS 1.2 static-RSA AES-GCM decryption, EMS/non-EMS, both Finished and all protected records verified before publication.
-- A typed modulus-only recovery boundary, interchangeable known-factor and executed-circuit results, and explicit provenance.
+- Genuine TLS 1.2 RSA/DHE/ECDHE and TLS 1.3 decryption, version-specific schedules, both Finished and all protected records verified before publication.
+- A typed public-problem recovery boundary: RSA factorization, finite-field DLP and curve-specific DLP, mathematically verified results, and explicit provenance.
 - A separate problem-based timing function that labels the configured delay as illustrative.
 - Generic small-number Shor execution and an offline-tested IonQ execution adapter.
 - Safe HTTP rendering and a local inspector requiring no production capture or secret uploads.
 
 ## Why this is future-facing
 
-The application consumes a verified mathematical answer regardless of backend. Future fault-tolerant hardware will likely require changes to circuit algorithms, compilation, resource management and provider execution, but not a rewrite of the TCP/TLS/HTTP pipeline. Later DHE/ECDHE support requires typed discrete-log problems and corresponding local premaster derivation, not merely factoring an authentication certificate.
+The application consumes a verified mathematical answer regardless of backend. Future fault-tolerant hardware will likely require changes to circuit algorithms, compilation, resource management and provider execution, but not a rewrite of the TCP/TLS/HTTP pipeline. The DHE/ECDHE paths already consume typed discrete-log results and perform local shared-secret derivation. Only small-number RSA order finding has an implemented executed quantum solver; full-scale factoring and FF/EC DLP recovery remain explicitly substituted by demo fixtures.
 
 Qubit count alone does not establish runtime. The current three-second delay is a presentation choice, not a scientific estimate. The small-number circuit execution is evidence about implementation correctness, not evidence of a practical RSA-2048 attack.
 
@@ -46,7 +48,7 @@ Qubit count alone does not establish runtime. The current three-second delay is 
 
 See `docs/validation.md` for exact executed checks and `docs/quantum-evidence.md` for circuit counts, depths, versions and execution provenance. A separate process proves that runtime recovery reproduces independent HTTP hashes while test-oracle and key-file reads are denied.
 
-Scope is deliberately narrow: full TLS 1.2 static RSA / AES-128-GCM / HTTP/1.1 decrypts. ECDHE/TLS 1.3 are classified but not decrypted. Unknown test moduli, missing packets, conflicting overlaps and invalid authentication fail honestly. Browser execution/visual acceptance was blocked by the development environment's browser permission and remains a final manual/automated check.
+See `docs/support-matrix.md` for tested combinations. Full handshakes, RSA certificate authentication, ffdhe2048/P-256/X25519 and HTTP/1.1 are the supported scope. Unknown recovery material, missing packets, conflicting overlaps and invalid authentication fail honestly. PSK/resumption, HelloRetryRequest, early data, client authentication, unlisted groups and hybrid/PQ exchanges remain unsupported. Authenticated HTTP/2 bytes remain available with an explicit decoding limitation. Browser execution/visual acceptance was blocked by the development environment's browser permission and remains a final manual/automated check.
 
 ## Originality, attribution and license
 

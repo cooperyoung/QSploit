@@ -4,10 +4,25 @@ Original working baseline: `8c207d2` (223 passed, one browser test skipped).
 RSA AES-256 extension: `26832a6` (EMS/non-EMS, genuine authenticated captures).
 DHE extension: `fc533a9` (ffdhe2048, AES-128/256, EMS/non-EMS).
 
-P-256 is preserved at `2200f73`; X25519 also completes TLS 1.2 ECDHE.
-The current assignment continues with TLS 1.3 ECDHE,
-ChaCha20-Poly1305 and TLS 1.3 FFDHE, completing each path before the next.
-See `support-matrix.md` for concrete evidence; do not infer completion from this list.
+P-256 TLS 1.2 is preserved at `2200f73`; X25519 TLS 1.2 at `8129a5d`.
+TLS 1.3 P-256/AES128 is preserved at `2fd7f0e` (607 passed, one browser skip).
+TLS 1.3 X25519/AES128 and genuine KeyUpdate are preserved at `34535fd`.
+Its full run had 651 passes and one outdated unsupported-status expectation;
+the expectation was corrected for newly supported TLS 1.3, and all 16 API tests
+then passed. Genuine KeyUpdate isolation verifies 21 protected records.
+
+TLS 1.3 P-256/AES256/SHA384 has completed genuine/API/isolated checks and 131
+TLS 1.3 tests; full regression is in progress before checkpoint. Next ordered
+work: X25519/AES256, then ChaCha (DHE TLS 1.2 first), then TLS 1.3 FFDHE.
+No DLP quantum solver is being implemented; only the unavailable recovery is
+simulated. Finish all these authorized paths autonomously.
+
+The root owns app/UI/docs/mixed-tour integration; classical owns TLS engines;
+fixtures owns genuine endpoint generators/assets/API per-path tests; quantum
+owns independent vectors/review. Mixed tour builder and two passing API/provenance
+tests exist; rebuild the tour after all protocol gates. Final work also includes
+full-suite/isolation/wheel verification, latest server restart, precise documentation
+and local Git checkpoint. Browser access remains denied; do not bypass it.
 
 ## Storage issue and reliable validation
 

@@ -67,7 +67,7 @@ HTTP bytes, premaster/master/traffic secrets, or a private key.
 
 | Problem | Public input | Recovery result | Mathematical verification |
 |---|---|---|---|
-| `RSAProblem` | modulus `n` | `RSAFactors(p,q)` | distinct probable primes, `p*q == n` |
+| `RSAProblem` | modulus `n` | `RSAFactors(p,q)` | nontrivial product `p*q == n`; TLS additionally validates a two-prime private key |
 | `FFDLogProblem` | `p,g,y,order` | `FFDLogSecret(x)` | validated group/subgroup and `g**x mod p == y` |
 | `ECDLogProblem(secp256r1)` | named curve and server point | `ECDLogSecret(x)` | valid scalar and `xG == Q` |
 | `ECDLogProblem(x25519)` | named curve and encoded server u-coordinate | `X25519Secret(scalar)` | RFC 7748 public-key computation matches the normalized share |

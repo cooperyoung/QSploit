@@ -26,7 +26,7 @@ def fixture(name="tls13-p256-aes128"):
     return session, secret, expected
 
 
-@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128"])
+@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128", "tls13-p256-aes256"])
 def tls_capture(request):
     return fixture(request.param)
 
@@ -37,12 +37,12 @@ def traffic(expected, direction, epoch):
     return bytes.fromhex(expected["tls13_secrets"][prefix + suffix])
 
 
-def encrypt(record, secret, sequence, payload, kind=22, padding=0):
-    return encrypt_inner(record, secret, sequence, payload + bytes([kind]) + bytes(padding))
+def encrypt(record, secret, sequence, payload, kind=22, padding=0, *, cipher_suite=0x1301):
+    return encrypt_inner(record, secret, sequence, payload + bytes([kind]) + bytes(padding), cipher_suite=cipher_suite)
 
 
-def encrypt_inner(record, secret, sequence, plaintext):
-    key, iv = traffic_key_iv(secret)
+def encrypt_inner(record, secret, sequence, plaintext, *, cipher_suite=0x1301):
+    key, iv = traffic_key_iv(secret, cipher_suite)
     nonce = bytes(a ^ b for a, b in zip(iv, sequence.to_bytes(12, "big")))
     aad = b"\x17\x03\x03" + (len(plaintext) + 16).to_bytes(2, "big")
     return replace(record, content_type=23, version=0x0303, fragment=AESGCM(key).encrypt(nonce, plaintext, aad))
@@ -65,7 +65,7 @@ def test_genuine_tls13_schedule_and_http_match_independent_endpoints(tls_capture
     assert not session.blockers and session.alpn is None and session.authentication is None
     assert problem_for(session).curve == expected["public_problem"]["curve"]
     transcript = b"".join(h.wire for h in session.clear_handshakes)
-    client, server, master = handshake_secrets(ecdhe_shared_secret(session.ecdhe, secret), transcript)
+    client, server, master = handshake_secrets(ecdhe_shared_secret(session.ecdhe, secret), transcript, session.cipher_suite)
     assert client == traffic(expected, "c2s", "handshake")
     assert server == traffic(expected, "s2c", "handshake")
     assert master.hex() == expected["tls13_master_secret_hex"]
@@ -95,11 +95,11 @@ def test_valid_record_tag_does_not_replace_signature_or_finished_checks(directio
     session, secret, expected = tls_capture
     records = list(session.records); index = indices(session, direction)[0]
     key = traffic(expected, direction, "handshake")
-    kind, payload = decrypt_record(records[index], key, 0)
+    kind, payload = decrypt_record(records[index], key, 0, session.cipher_suite)
     pieces = messages(payload)
     target = next(i for i, msg in enumerate(pieces) if msg[0] == handshake)
     pieces[target] = pieces[target][:-1] + bytes([pieces[target][-1] ^ 1])
-    records[index] = encrypt(records[index], key, 0, b"".join(pieces), kind)
+    records[index] = encrypt(records[index], key, 0, b"".join(pieces), kind, cipher_suite=session.cipher_suite)
     with pytest.raises(QSploitError) as exc:
         decrypt_tls13(replace(session, records=tuple(records)), secret)
     assert exc.value.code == code
@@ -110,9 +110,9 @@ def test_fragmented_handshake_and_padding_preserve_exact_transcript(direction, t
     session, secret, expected = tls_capture
     records = list(session.records); index = indices(session, direction)[0]
     key = traffic(expected, direction, "handshake")
-    _, payload = decrypt_record(records[index], key, 0)
-    first = encrypt(records[index], key, 0, payload[:7], padding=11)
-    second = encrypt(records[index], key, 1, payload[7:], padding=23)
+    _, payload = decrypt_record(records[index], key, 0, session.cipher_suite)
+    first = encrypt(records[index], key, 0, payload[:7], padding=11, cipher_suite=session.cipher_suite)
+    second = encrypt(records[index], key, 1, payload[7:], padding=23, cipher_suite=session.cipher_suite)
     records[index:index + 1] = [first, second]
     output = decrypt_tls13(replace(session, records=tuple(records)), secret)
     assert output.c2s == base64.b64decode(expected["c2s_base64"])
@@ -124,14 +124,14 @@ def test_fragmented_handshake_and_padding_preserve_exact_transcript(direction, t
 def test_key_update_uses_old_keys_then_resets_new_epoch_sequence(direction, tls_capture):
     session, secret, expected = tls_capture
     old = traffic(expected, direction, "application")
-    new = hkdf_expand_label(old, "traffic upd", b"", 32)
+    new = hkdf_expand_label(old, "traffic upd", b"", len(old), session.cipher_suite)
     protected = indices(session, direction)
     records = list(session.records)
     start = protected[1]
-    update = encrypt(records[start], old, 0, b"\x18\x00\x00\x01\x00")
+    update = encrypt(records[start], old, 0, b"\x18\x00\x00\x01\x00", cipher_suite=session.cipher_suite)
     for seq, index in enumerate(protected[1:]):
-        kind, payload = decrypt_record(records[index], old, seq)
-        records[index] = encrypt(records[index], new, seq, payload, kind)
+        kind, payload = decrypt_record(records[index], old, seq, session.cipher_suite)
+        records[index] = encrypt(records[index], new, seq, payload, kind, cipher_suite=session.cipher_suite)
     records.insert(start, update)
     output = decrypt_tls13(replace(session, records=tuple(records)), secret)
     assert output.c2s == base64.b64decode(expected["c2s_base64"])
@@ -166,11 +166,11 @@ def test_authenticated_protocol_failures_still_reject(variant, code, tls_capture
     else:
         changed = b"test"
     if variant == "unknown_inner":
-        records[index] = encrypt_inner(records[index], key, 0, b"test\x19")
+        records[index] = encrypt_inner(records[index], key, 0, b"test\x19", cipher_suite=session.cipher_suite)
     elif variant == "padding_limit":
-        records[index] = encrypt_inner(records[index], key, 0, b"test\x16" + bytes(16381))
+        records[index] = encrypt_inner(records[index], key, 0, b"test\x16" + bytes(16381), cipher_suite=session.cipher_suite)
     else:
-        records[index] = encrypt(records[index], key, 0, changed, 23 if variant == "early_app" else 22)
+        records[index] = encrypt(records[index], key, 0, changed, 23 if variant == "early_app" else 22, cipher_suite=session.cipher_suite)
     with pytest.raises(QSploitError) as exc:
         decrypt_tls13(replace(session, records=tuple(records)), secret)
     assert exc.value.code == code
@@ -235,8 +235,8 @@ def test_tls13_key_update_limit_is_enforced_before_release(tls_capture):
     current = traffic(expected, "c2s", "application")
     updates = []
     for _ in range(MAX_KEY_UPDATES + 1):
-        updates.append(encrypt(records[start], current, 0, b"\x18\x00\x00\x01\x00"))
-        current = hkdf_expand_label(current, "traffic upd", b"", 32)
+        updates.append(encrypt(records[start], current, 0, b"\x18\x00\x00\x01\x00", cipher_suite=session.cipher_suite))
+        current = hkdf_expand_label(current, "traffic upd", b"", len(current), session.cipher_suite)
     records[start:start] = updates
     with pytest.raises(QSploitError) as exc:
         decrypt_tls13(replace(session, records=tuple(records)), secret)
