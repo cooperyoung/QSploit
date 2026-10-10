@@ -45,8 +45,11 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
     openssl_cipher = ('DHE' if family=='dhe' else 'ECDHE')+'-RSA-'+{
         'aes128gcm':'AES128-GCM-SHA256','aes256gcm':'AES256-GCM-SHA384','chacha20-poly1305':'CHACHA20-POLY1305'}[cipher_name]
     if tls13:
-        expected_cipher = 0x1301 if cipher_name=='aes128gcm' else 0x1302
-        openssl_cipher = 'TLS_AES_128_GCM_SHA256' if cipher_name=='aes128gcm' else 'TLS_AES_256_GCM_SHA384'
+        expected_cipher,openssl_cipher = {
+            'aes128gcm':(0x1301,'TLS_AES_128_GCM_SHA256'),
+            'aes256gcm':(0x1302,'TLS_AES_256_GCM_SHA384'),
+            'chacha20-poly1305':(0x1303,'TLS_CHACHA20_POLY1305_SHA256'),
+        }[cipher_name]
     keylog = temp/f'{port}-openssl.keys'
     settings = HandshakeSettings()
     version = (3,4) if tls13 else (3,3)
@@ -220,7 +223,7 @@ def exchange(sock, certificate, private_key, temp, cipher_name, ems, openssl, fa
             raise RuntimeError('Independent OpenSSL keylog mixes TLS connections')
         details['client_random_hex'] = next(iter(randoms))
         oracles = {label:secret.lower() for label,_,secret in key_lines}
-        secret_size = 32 if cipher_name=='aes128gcm' else 48
+        secret_size = 48 if cipher_name=='aes256gcm' else 32
         if any(len(bytes.fromhex(value))!=secret_size for value in oracles.values()):
             raise RuntimeError('Independent TLS 1.3 secrets have the wrong negotiated hash length')
         for side in ('client','server'):
@@ -288,14 +291,14 @@ def main():
     parser.add_argument('--tls13',action='store_true',help='Generate only the TLS 1.3 AES-128 baseline and unknown-share case')
     parser.add_argument('--key-update',action='store_true',help='Generate a separate TLS 1.3 capture with a genuine server KeyUpdate')
     parser.add_argument('--aes256',action='store_true',help='Generate the TLS 1.3 AES-256/SHA-384 family only')
-    parser.add_argument('--chacha',action='store_true',help='Generate the gated TLS 1.2 ChaCha20-Poly1305 family only')
+    parser.add_argument('--chacha',action='store_true',help='Generate the gated ChaCha20-Poly1305 family only')
     args = parser.parse_args()
     if args.key_update and not args.tls13:
         parser.error('--key-update requires --tls13')
     if args.aes256 and (not args.tls13 or args.key_update):
         parser.error('--aes256 requires the baseline TLS 1.3 capture mode')
-    if args.chacha and (args.tls13 or args.aes256):
-        parser.error('The current ChaCha20-Poly1305 gate supports TLS 1.2 only')
+    if args.chacha and (args.aes256 or args.key_update or (args.tls13 and args.family!='p256')):
+        parser.error('TLS 1.3 ChaCha20-Poly1305 currently supports the P-256 baseline; cipher choices are exclusive')
     if args.tls13 and args.family=='dhe':
         parser.error('TLS 1.3 fixture generation currently supports P-256 and X25519')
     if tlslite.__version__ != '0.8.2':
@@ -314,9 +317,10 @@ def main():
                  (prefix+'-chacha-unknown','chacha20-poly1305',True,False)]
     if args.tls13:
         bits = 256 if args.aes256 else 128
-        cipher = f'aes{bits}gcm'
-        unknown_name = f'tls13-{args.family}-aes256-unknown' if args.aes256 else f'tls13-{args.family}-unknown'
-        cases = [(f'tls13-{args.family}-aes{bits}',cipher,True,True),
+        cipher = 'chacha20-poly1305' if args.chacha else f'aes{bits}gcm'
+        cipher_tag = 'chacha' if args.chacha else f'aes{bits}'
+        unknown_name = f'tls13-{args.family}-{cipher_tag}-unknown' if args.aes256 or args.chacha else f'tls13-{args.family}-unknown'
+        cases = [(f'tls13-{args.family}-{cipher_tag}',cipher,True,True),
                  (unknown_name,cipher,True,False)]
         if args.key_update:
             cases = [(f'tls13-{args.family}-aes128-keyupdate','aes128gcm',True,True)]

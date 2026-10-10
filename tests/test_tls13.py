@@ -4,7 +4,7 @@ from dataclasses import replace
 import json
 from pathlib import Path
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 import pytest
 
 from qsploit.keyexchange import ecdhe_shared_secret
@@ -26,7 +26,7 @@ def fixture(name="tls13-p256-aes128"):
     return session, secret, expected
 
 
-@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128", "tls13-p256-aes256", "tls13-x25519-aes256"])
+@pytest.fixture(params=["tls13-p256-aes128", "tls13-x25519-aes128", "tls13-p256-aes256", "tls13-x25519-aes256", "tls13-p256-chacha"])
 def tls_capture(request):
     return fixture(request.param)
 
@@ -45,7 +45,8 @@ def encrypt_inner(record, secret, sequence, plaintext, *, cipher_suite=0x1301):
     key, iv = traffic_key_iv(secret, cipher_suite)
     nonce = bytes(a ^ b for a, b in zip(iv, sequence.to_bytes(12, "big")))
     aad = b"\x17\x03\x03" + (len(plaintext) + 16).to_bytes(2, "big")
-    return replace(record, content_type=23, version=0x0303, fragment=AESGCM(key).encrypt(nonce, plaintext, aad))
+    cipher = ChaCha20Poly1305(key) if cipher_suite == 0x1303 else AESGCM(key)
+    return replace(record, content_type=23, version=0x0303, fragment=cipher.encrypt(nonce, plaintext, aad))
 
 
 def indices(session, direction):

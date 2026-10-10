@@ -35,6 +35,8 @@ These PCAP files contain **genuine OS TCP packets** captured on macOS loopback (
 | `tls12-ecdhe-p256-chacha-unknown.pcap` | Same P-256 ChaCha20 family with an unknown server point |
 | `tls12-ecdhe-x25519-chacha-ems.pcap`, `tls12-ecdhe-x25519-chacha-noems.pcap` | Genuine ECDHE_RSA/X25519 with ChaCha20-Poly1305/SHA-256 (`0xcca8`), both schedules |
 | `tls12-ecdhe-x25519-chacha-unknown.pcap` | Same X25519 ChaCha20 family with an unknown server share |
+| `tls13-p256-chacha.pcap` | Genuine TLS 1.3 P-256 with ChaCha20-Poly1305/SHA-256 (`0x1303`), independent traffic-secret evidence and one NewSessionTicket |
+| `tls13-p256-chacha-unknown.pcap` | Same TLS 1.3 ChaCha20 family with an unknown server point |
 
 The first exchange is `GET /profile?name=Cooper&tag=a&tag=b&empty=` and an HTML account page containing a real hidden `account_id=42` field. The second is `POST /echo` with URL-encoded parameters and a chunked, gzip JSON response. TLS application writes span multiple records. The HTML intentionally includes a script, link, external image and form to exercise inert rendering. None refers to a real user account.
 
@@ -139,3 +141,11 @@ The command stages two known captures and an unknown-share capture, then appends
 The P-256 variant forces `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256` (`0xcca8`) and uses the unchanged ECDH scalar observer and EC registry. It independently verifies both TLS 1.2 schedules in exactly the same endpoint harness.
 
 The X25519 variant uses the same cipher suite and schedules with RFC 7748 key agreement, preserving the original random private encodings before any clamping. Each capture has its own exact public-share registry key; neither group membership nor the RSA signing certificate can produce a fixture match for the unknown case.
+
+## TLS 1.3 ChaCha20-Poly1305 endpoint evidence
+
+The P-256 TLS 1.3 ChaCha20 fixtures negotiate `TLS_CHACHA20_POLY1305_SHA256` (`0x1303`) directly between the endpoints. All independently logged handshake and application secrets are checked to be 32 bytes, and both application secrets match the server session. They retain RSA-PSS CertificateVerify, one NewSessionTicket and both real HTTP exchanges. The runtime scalar registry is unchanged in shape and contains no traffic secrets.
+
+```sh
+.venv/bin/python scripts/make_ephemeral_fixtures.py --family p256 --tls13 --chacha
+```

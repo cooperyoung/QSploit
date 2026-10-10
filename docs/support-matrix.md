@@ -20,7 +20,8 @@ test oracle's master secret or expected plaintext.
 | TLS 1.3 | ECDHE P-256, X25519 | AES-256-GCM / SHA-384 | **Verified**: independent 48-byte traffic-secret evidence |
 | TLS 1.2 | DHE_RSA ffdhe2048 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
 | TLS 1.2 | ECDHE_RSA P-256, X25519 | ChaCha20-Poly1305 / SHA-256 | **Verified**: EMS and non-EMS |
-| TLS 1.3 | ECDHE P-256, X25519 | ChaCha20-Poly1305 | Next protocol gates |
+| TLS 1.3 | ECDHE P-256 | ChaCha20-Poly1305 / SHA-256 | **Verified**: full handshake and exact HTTP |
+| TLS 1.3 | ECDHE X25519 | ChaCha20-Poly1305 | Next protocol gate |
 | TLS 1.3 | FFDHE | Supported AEADs | Detection only; final requested extension |
 | TLS 1.3 | PQ / hybrid, unknown PSK | Any | Unsupported: Shor alone is insufficient or the PSK is missing |
 
@@ -173,3 +174,11 @@ combination without production changes. The ordinary worker/API and isolated
 runtime recover exact independent HTTP, both Finished messages and all 19
 protected records. The complete ChaCha negative suite now covers DHE, P-256
 and X25519, while the X25519 encoding/AES regressions remain passing.
+
+## Extension 5d: TLS 1.3 P-256 / ChaCha20-Poly1305
+
+A genuine 0x1303 capture verifies the SHA-256 HKDF schedule with 32-byte ChaCha
+keys, encrypted handshake, CertificateVerify, both Finished messages and all 20
+protected records. Independent endpoint traffic secrets and exact HTTP agree
+through the same API. Algorithm selection is explicit by cipher suite; it does
+not confuse AES-256 and ChaCha merely because both use a 32-byte key.

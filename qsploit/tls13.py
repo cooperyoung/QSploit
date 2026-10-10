@@ -1,4 +1,4 @@
-"""Strict TLS 1.3 full-handshake AES-GCM decryption (RFC 8446).
+"""Strict TLS 1.3 full-handshake AEAD decryption (RFC 8446).
 
 All application bytes remain local and quarantined until CertificateVerify,
 both Finished messages, and every captured protected record authenticate.
@@ -12,14 +12,14 @@ from cryptography import x509
 from cryptography.exceptions import InvalidSignature, InvalidTag, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
 from .keyexchange import ecdhe_shared_secret
 from .models import ApplicationStreams, ParsedTLS, QSploitError, Record, RecoveredSecret
 from .tls import MAX_HANDSHAKE_BYTES, MAX_HANDSHAKE_MESSAGES, MAX_RSA_BITS, _Reader, _alpn, _extensions, _hello, problem_for
 
 MAX_KEY_UPDATES = 32
-CIPHER_PARAMETERS = {0x1301: ("sha256", 32, 16), 0x1302: ("sha384", 48, 32)}
+CIPHER_PARAMETERS = {0x1301: ("sha256", 32, 16), 0x1302: ("sha384", 48, 32), 0x1303: ("sha256", 32, 32)}
 
 
 def cipher_parameters(cipher_suite: int) -> tuple[str, int, int]:
@@ -79,8 +79,9 @@ def decrypt_record(record: Record, traffic_secret: bytes, sequence: int, cipher_
     key, iv = traffic_key_iv(traffic_secret, cipher_suite)
     nonce = bytes(a ^ b for a, b in zip(iv, sequence.to_bytes(12, "big")))
     aad = b"\x17\x03\x03" + len(record.fragment).to_bytes(2, "big")
+    cipher = ChaCha20Poly1305(key) if cipher_suite == 0x1303 else AESGCM(key)
     try:
-        plaintext = AESGCM(key).decrypt(nonce, record.fragment, aad)
+        plaintext = cipher.decrypt(nonce, record.fragment, aad)
     except InvalidTag:
         raise QSploitError("AEAD_AUTH_FAILED", "A TLS 1.3 record failed authentication; no session plaintext was released.") from None
     if len(plaintext) > 16385:
@@ -271,7 +272,7 @@ def _direction(session: ParsedTLS, direction: str, handshake_secret: bytes, mast
 def decrypt_tls13(session: ParsedTLS, secret: RecoveredSecret) -> ApplicationStreams:
     problem_for(session)
     if session.tls_version != 0x0304 or session.cipher_suite not in CIPHER_PARAMETERS or session.ecdhe is None:
-        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS 1.3 schedule supports AES-128-GCM/SHA-256 and AES-256-GCM/SHA-384 only.")
+        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS 1.3 schedule supports AES-GCM and ChaCha20-Poly1305 only.")
     client = [h.wire for h in session.clear_handshakes if h.direction == "c2s"]
     server = [h.wire for h in session.clear_handshakes if h.direction == "s2c"]
     if len(client) != 1 or client[0][0] != 1 or len(server) != 1 or server[0][0] != 2:

@@ -75,7 +75,13 @@ function showNotice(element, messages) {
 }
 function busy(on) {
   state.busy = on;
-  for (const id of ["#recover", "#clear", "#replace", "#load-demo", "#load-tour"])
+  for (const id of [
+    "#recover",
+    "#clear",
+    "#replace",
+    "#load-demo",
+    "#load-tour",
+  ])
     $(id).disabled = on;
   $("#file").disabled = on;
   $("#run-quantum").disabled = on || state.quantumBusy || !state.aer;
@@ -87,7 +93,8 @@ function resetSelection() {
   ++state.selectionEpoch;
   ++state.exchangeRequest;
   ++state.exchangeListRequest;
-  for (const id of ["#session-detail", "#inspector", "#job-panel"]) $(id).hidden = true;
+  for (const id of ["#session-detail", "#inspector", "#job-panel"])
+    $(id).hidden = true;
 }
 async function upload(file) {
   if (state.busy || state.quantumBusy) return;
@@ -272,18 +279,27 @@ function renderDetail() {
   const values = [
     ["Protocol", s.tls_version ? `TLS ${s.tls_version}` : "Unknown"],
     ["Key exchange", kex(s.key_exchange)],
-    ["Public key", s.rsa ? `${s.rsa.bits}-bit RSA` : s.selected_group_name || "—"],
+    [
+      "Public key",
+      s.rsa ? `${s.rsa.bits}-bit RSA` : s.selected_group_name || "—",
+    ],
     [
       "Key schedule",
       s.tls_version === "1.3"
         ? "TLS 1.3 HKDF"
         : s.ems === true
-        ? "Extended (EMS)"
-        : s.ems === false
-          ? "Standard"
-          : "Unknown",
+          ? "Extended (EMS)"
+          : s.ems === false
+            ? "Standard"
+            : "Unknown",
     ],
-    ["Application", s.alpn || (s.tls_version === "1.3" && s.decrypt_state !== "verified" ? "Encrypted until recovery" : "Not negotiated")],
+    [
+      "Application",
+      s.alpn ||
+        (s.tls_version === "1.3" && s.decrypt_state !== "verified"
+          ? "Encrypted until recovery"
+          : "Not negotiated"),
+    ],
     [
       "Quantum assessment",
       s.vulnerability === "shor_applicable"
@@ -315,7 +331,11 @@ function renderDetail() {
     s.decrypt_state === "verified" ? "Recover again →" : "Recover session →";
   $("#public-details").hidden = !s.recovery_parameters;
   if (s.recovery_parameters)
-    $("#public-key").textContent = JSON.stringify(s.recovery_parameters, null, 2);
+    $("#public-key").textContent = JSON.stringify(
+      s.recovery_parameters,
+      null,
+      2,
+    );
   $("#timing-note").textContent =
     state.config.mode === "demo"
       ? `Demo recovery: ${state.config.demo_delay_seconds}s illustrative presentation delay · Known test recovery material, no quantum execution. TLS decryption and verification are real.`
@@ -358,7 +378,12 @@ function renderJob(job) {
           : job.requested_backend;
   $("#checks").replaceChildren(
     ...[
-      [job.recovery_problem === "rsa_factor" ? "Factor pair" : "Discrete logarithm", job.recovery_verified || job.factor_pair_verified],
+      [
+        job.recovery_problem === "rsa_factor"
+          ? "Factor pair"
+          : "Discrete logarithm",
+        job.recovery_verified || job.factor_pair_verified,
+      ],
       ["Client Finished", job.client_finished_verified],
       ["Server Finished", job.server_finished_verified],
       [
@@ -406,7 +431,10 @@ function poll(id, quantum) {
   if (polls.has(id)) return polls.get(id);
   const pending = pollJob(id, quantum);
   polls.set(id, pending);
-  pending.then(() => polls.delete(id), () => polls.delete(id));
+  pending.then(
+    () => polls.delete(id),
+    () => polls.delete(id),
+  );
   return pending;
 }
 async function pollJob(id, quantum) {
@@ -429,7 +457,10 @@ async function pollJob(id, quantum) {
               state.capture = capture;
               renderCapture();
               renderDetail();
-              if (job.state === "succeeded" && state.selected === job.session_id)
+              if (
+                job.state === "succeeded" &&
+                state.selected === job.session_id
+              )
                 await loadExchanges();
             }
           }
@@ -448,10 +479,16 @@ async function pollJob(id, quantum) {
   }
 }
 async function loadExchanges() {
-  const sid = state.selected, epoch = state.selectionEpoch;
+  const sid = state.selected,
+    epoch = state.selectionEpoch;
   const request = ++state.exchangeListRequest;
   const exchanges = await api(`/api/sessions/${sid}/http`);
-  if (sid !== state.selected || epoch !== state.selectionEpoch || request !== state.exchangeListRequest) return;
+  if (
+    sid !== state.selected ||
+    epoch !== state.selectionEpoch ||
+    request !== state.exchangeListRequest
+  )
+    return;
   $("#inspector").hidden = false;
   $("#exchanges").replaceChildren();
   $("#message-panes").hidden = !exchanges.length;
@@ -488,10 +525,16 @@ async function loadExchanges() {
   if (exchanges.length) await loadExchange(0);
 }
 async function loadExchange(index) {
-  const sid = state.selected, epoch = state.selectionEpoch;
+  const sid = state.selected,
+    epoch = state.selectionEpoch;
   const request = ++state.exchangeRequest;
   const item = await api(`/api/sessions/${sid}/http/${index}`);
-  if (sid !== state.selected || epoch !== state.selectionEpoch || request !== state.exchangeRequest) return;
+  if (
+    sid !== state.selected ||
+    epoch !== state.selectionEpoch ||
+    request !== state.exchangeRequest
+  )
+    return;
   state.exchange = item;
   for (const b of $("#exchanges").children)
     b.classList.toggle("active", Number(b.dataset.index) === index);

@@ -49,6 +49,7 @@ def test_runtime_assets_have_only_pcaps_and_explicit_recovery_fixtures():
     expected_names |= {f'tls12-ecdhe-x25519-aes{bits}-{ems}.pcap' for bits in (128,256) for ems in ('ems','noems')}
     expected_names |= {'tls13-p256-aes128.pcap','tls13-x25519-aes128.pcap','tls13-x25519-aes128-keyupdate.pcap','protocol-tour.pcap'}
     expected_names |= {'tls13-p256-aes256.pcap','tls13-x25519-aes256.pcap'}
+    expected_names |= {'tls13-p256-chacha.pcap'}
     expected_names |= {'tls12-dhe-chacha-ems.pcap','tls12-dhe-chacha-noems.pcap'}
     expected_names |= {'tls12-ecdhe-p256-chacha-ems.pcap','tls12-ecdhe-p256-chacha-noems.pcap'}
     expected_names |= {'tls12-ecdhe-x25519-chacha-ems.pcap','tls12-ecdhe-x25519-chacha-noems.pcap'}

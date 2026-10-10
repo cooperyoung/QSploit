@@ -7,7 +7,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--demo", action="store_true", help="Explicit known-test-key demonstration mode")
     mode.add_argument("--backend", choices=["aer", "ionq_simulator", "ionq_qpu"])
-    parser.add_argument("--demo-delay-seconds", type=float, default=float(os.getenv("QSPLOIT_DEMO_DELAY_SECONDS", "3")))
+    parser.add_argument("--demo-delay-seconds", type=float, default=os.getenv("QSPLOIT_DEMO_DELAY_SECONDS", "3"))
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--target", default=os.getenv("QSPLOIT_IONQ_TARGET"))
     parser.add_argument("--shots", type=int, default=256)

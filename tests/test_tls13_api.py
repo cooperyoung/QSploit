@@ -24,7 +24,7 @@ from qsploit.tls import parse_tls
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT/'tests/fixtures'
 DEMO = ROOT/'qsploit/demo'
-NAMES = ('tls13-p256-aes128','tls13-x25519-aes128','tls13-x25519-aes128-keyupdate','tls13-p256-aes256','tls13-x25519-aes256')
+NAMES = ('tls13-p256-aes128','tls13-x25519-aes128','tls13-x25519-aes128-keyupdate','tls13-p256-aes256','tls13-x25519-aes256','tls13-p256-chacha')
 HEADERS = {'X-QSploit':'1'}
 
 
@@ -101,7 +101,10 @@ def test_tls13_real_capture_registry_has_only_exact_public_problem_and_observed_
     assert expected['tls13_secrets']['CLIENT_TRAFFIC_SECRET_0']==expected['client_application_traffic_secret_0_hex']
     assert expected['tls13_secrets']['SERVER_TRAFFIC_SECRET_0']==expected['server_application_traffic_secret_0_hex']
     secret_size=48 if 'aes256' in name else 32
-    assert expected['cipher_suite_id']==(0x1302 if secret_size==48 else 0x1301)
+    expected_suite=0x1303 if 'chacha' in name else (0x1302 if secret_size==48 else 0x1301)
+    assert expected['cipher_suite_id']==expected_suite
+    if expected_suite==0x1303:
+        assert expected['cipher']=='TLS_CHACHA20_POLY1305_SHA256'
     assert expected['prf_hash']==('sha384' if secret_size==48 else 'sha256')
     assert len(bytes.fromhex(expected['tls13_master_secret_hex']))==secret_size
     assert all(len(bytes.fromhex(value))==secret_size for value in expected['tls13_secrets'].values())
@@ -175,7 +178,7 @@ def test_tls13_upload_worker_recovery_exact_http_and_safe_preview(client,name,mo
         assert value not in json.dumps(public)
 
 
-@pytest.mark.parametrize('name',['tls13-p256-unknown','tls13-x25519-unknown','tls13-p256-aes256-unknown','tls13-x25519-aes256-unknown'])
+@pytest.mark.parametrize('name',['tls13-p256-unknown','tls13-x25519-unknown','tls13-p256-aes256-unknown','tls13-x25519-aes256-unknown','tls13-p256-chacha-unknown'])
 def test_unknown_ephemeral_share_fails_without_using_same_group_or_certificate(client,name):
     wire,expected=fixture(name)
     assert expected['recovery_registry_key'] not in secrets()

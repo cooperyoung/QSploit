@@ -9,3 +9,5 @@ Console output records width/depth/operations, requested and actual shots (or ex
 These files have been tested locally against a supplied Qiskit Aer backend for 15 and 21. No hosted Qollab or IonQ run has been performed and nothing has been published. Consult `docs/quantum-evidence.md` in the source repository for full evidence and limitations.
 
 The generic arithmetic and measured-phase postprocessor are exact copies of `qsploit/quantum/arithmetic.py` and `postprocess.py`. After changing those source files, run `.venv/bin/python scripts/sync_qollab.py`; tests enforce byte equality.
+
+This effort is supported by Qollab & IonQ. QSploit source is MIT licensed; see LICENSE. Built with Codex assistance from the supplied specification.

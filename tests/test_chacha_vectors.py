@@ -1,18 +1,21 @@
-"""Independent ChaCha20-Poly1305 vectors for TLS 1.2 DHE and ECDHE.
+"""Independent ChaCha20-Poly1305 vectors for TLS 1.2 and TLS 1.3.
 
 RFC 8439 section 2.8.2 is a published primitive known answer. The separate
 TLS record and 88-byte key block are static synthetic test vectors generated
-once by tlslite-ng 0.8.2 pure-Python ChaCha/PRF, crosschecked with cryptography
+once by tlslite-ng 0.8.2 pure-Python ChaCha/HKDF/PRF, crosschecked with cryptography
 47.0.0 AEAD. They are not represented as captured network traffic. No runtime
 QSploit helper was used to produce the expected bytes.
 """
 from dataclasses import replace
+import json
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 from qsploit.models import QSploitError, Record
 from qsploit.tls12 import derive_key_block, decrypt_record
+from qsploit import tls13
 
 SUITE = 0xCCAA
 _REFERENCE = {'source': 'RFC8439 section2.8.2; custom TLS vectors generated once using tlslite-ng 0.8.2 pure Python ChaCha+HKDF/PRF '
@@ -97,3 +100,95 @@ def test_tls12_chacha_sequence_never_wraps(sequence):
 def test_tls12_chacha_ciphertext_bounds(length):
     with pytest.raises(QSploitError):
         decrypt_record(replace(sample_record(), fragment=bytes(length)), T["key"], T["iv"], SEQUENCE, cipher_suite=SUITE)
+
+
+# This synthetic record contains 63 HTTP bytes, inner type 23, and two zero
+# padding bytes. All eight sequence-number bytes are nonzero to detect truncated
+# or little-endian nonce construction. It is independent of QSploit encryption.
+_TLS13_REFERENCE = {
+    "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "key": "2ffbc449e87844051c7768f61ffd8ad070830f01ec2c520ef65f08e8296dffa0",
+    "iv": "2f41c846a431a163814bcd71",
+    "nonce": "2f41c846a533a267844dca79",
+    "aad": "1703030052",
+    "plaintext": "474554202f6368616368612d766563746f723f636865636b65643d79657320485454502f312e310d0a486f73743a206578616d706c652e746573740d0a0d0a",
+    "record": "1703030052cde8e7c0c088da159dcc89e97cd85cf6cbe0ca7d3d3001325170f8c520f11a83fcfabe17c5efc090756defa813b37663377b7d64cce1810fa98e2749eceaee8484c3dde9d82012123c1e4a438670c4b767da",
+}
+U = {name: bytes.fromhex(value) for name, value in _TLS13_REFERENCE.items()}
+TLS13_SUITE = 0x1303
+
+
+def tls13_sample_record():
+    wire = U["record"]
+    assert wire[:5] == U["aad"]
+    assert int.from_bytes(wire[3:5], "big") == len(wire) - 5
+    return Record("c2s", 0, wire[0], int.from_bytes(wire[1:3], "big"), wire[5:])
+
+
+def test_tls13_chacha_static_key_and_iv_use_sha256_with_32_byte_key():
+    key, iv = tls13.traffic_key_iv(U["secret"], TLS13_SUITE)
+    assert (key, iv) == (U["key"], U["iv"])
+    assert len(key) == 32 and len(iv) == 12
+    assert bytes(a ^ b for a, b in zip(iv, SEQUENCE.to_bytes(12, "big"))) == U["nonce"]
+
+
+def test_tls13_chacha_static_record_authenticates_header_and_strips_inner_padding():
+    record = tls13_sample_record()
+    assert len(record.fragment) == len(U["plaintext"]) + 3 + 16
+    assert tls13.decrypt_record(record, U["secret"], SEQUENCE, TLS13_SUITE) == (23, U["plaintext"])
+
+
+@pytest.mark.parametrize("suite", [0x1301, 0x1302])
+def test_tls13_chacha_record_cannot_be_decrypted_as_aes_gcm(suite):
+    # AES256 also has a 32-byte key: key length cannot select the AEAD.
+    with pytest.raises(QSploitError) as error:
+        tls13.decrypt_record(tls13_sample_record(), U["secret"], SEQUENCE, suite)
+    assert error.value.code == "AEAD_AUTH_FAILED"
+
+
+@pytest.mark.parametrize("mutation", ["sequence", "truncated-sequence", "secret", "version", "type", "ciphertext", "tag", "explicit-nonce", "length"])
+def test_tls13_chacha_record_tampering_never_returns_plaintext(mutation):
+    record, secret, sequence = tls13_sample_record(), U["secret"], SEQUENCE
+    if mutation == "sequence":
+        sequence += 1
+    elif mutation == "truncated-sequence":
+        sequence &= 0xFFFFFFFF
+    elif mutation == "secret":
+        secret = bytes([secret[0] ^ 1]) + secret[1:]
+    elif mutation == "version":
+        record = replace(record, version=0x0302)
+    elif mutation == "type":
+        record = replace(record, content_type=22)
+    elif mutation == "explicit-nonce":
+        record = replace(record, fragment=bytes(8) + record.fragment)
+    elif mutation == "length":
+        record = replace(record, fragment=record.fragment + b"\x00")
+    else:
+        fragment = bytearray(record.fragment)
+        fragment[0 if mutation == "ciphertext" else -1] ^= 1
+        record = replace(record, fragment=bytes(fragment))
+    with pytest.raises(QSploitError):
+        tls13.decrypt_record(record, secret, sequence, TLS13_SUITE)
+
+
+@pytest.mark.parametrize("sequence", [-1, 2**64])
+def test_tls13_chacha_sequence_never_wraps(sequence):
+    with pytest.raises(QSploitError) as error:
+        tls13.decrypt_record(tls13_sample_record(), U["secret"], sequence, TLS13_SUITE)
+    assert error.value.code == "RESOURCE_LIMIT"
+
+
+def test_tls13_chacha_hash_selection_matches_published_sha256_schedule():
+    # RFC8448's handshake negotiated AES128. Its opaque transcript bytes here
+    # are KDF inputs only, not a claimed ChaCha capture: both suites select the
+    # identical SHA256 schedule. This also checks Finished and app derivation.
+    published = json.loads((Path(__file__).parent / "fixtures" / "rfc8448-simple-handshake.json").read_text())
+    vectors = {key: bytes.fromhex(value) for key, value in published.items() if key not in {"source", "description"}}
+    hellos = vectors["client_hello"] + vectors["server_hello"]
+    through_server = hellos + vectors["server_handshake_payload"]
+    client, server, master = tls13.handshake_secrets(vectors["shared_secret"], hellos, TLS13_SUITE)
+    assert (client, server, master) == (vectors["client_handshake_secret"], vectors["server_handshake_secret"], vectors["master_secret"])
+    assert tls13.finished_verify_data(server, through_server[:-36], TLS13_SUITE) == vectors["server_finished"][4:]
+    assert tls13.finished_verify_data(client, through_server, TLS13_SUITE) == vectors["client_finished"][4:]
+    assert tls13.derive_secret(master, "c ap traffic", through_server, TLS13_SUITE) == vectors["client_application_secret"]
+    assert tls13.derive_secret(master, "s ap traffic", through_server, TLS13_SUITE) == vectors["server_application_secret"]

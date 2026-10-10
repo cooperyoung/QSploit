@@ -17,8 +17,10 @@ TLS 1.2 DHE ChaCha is at `3ddc603` (780 passed, one browser skip).
 TLS 1.2 P-256 ChaCha and inspector race fixes are at `9a6d44f`
 (91 targeted Python passes, four pure Node controller tests, isolation verified).
 
-Current active gate: X25519 TLS 1.2 ChaCha EMS/non-EMS. Next: TLS 1.3 P-256
-ChaCha, TLS 1.3 X25519 ChaCha, then TLS 1.3 ffdhe2048 (AES128, AES256, ChaCha).
+TLS 1.2 X25519 ChaCha is at `be82599` (117 targeted passes, isolation verified).
+Current gate: TLS 1.3 P-256 ChaCha passes 287 integrated tests and isolation;
+independent vector confirmation is pending before checkpoint. Next: TLS 1.3
+X25519 ChaCha, then TLS 1.3 ffdhe2048 (AES128, AES256, ChaCha).
 Complete one path with genuine capture/negative/API proof before next; checkpoint.
 No DLP quantum solver is being implemented; only unavailable recovery is simulated.
 
