@@ -249,7 +249,7 @@ function renderDetail() {
   const values = [
     ["Protocol", s.tls_version ? `TLS ${s.tls_version}` : "Unknown"],
     ["Key exchange", kex(s.key_exchange)],
-    ["Key size", s.rsa ? `${s.rsa.bits} bits` : "—"],
+    ["Public key", s.rsa ? `${s.rsa.bits}-bit RSA` : s.selected_group_name || "—"],
     [
       "Master secret",
       s.ems === true
@@ -294,7 +294,7 @@ function renderDetail() {
       `Modulus (n)\n${s.rsa.n_hex}\n\nPublic exponent (e)\n${s.rsa.e_hex}`;
   $("#timing-note").textContent =
     state.config.mode === "demo"
-      ? `Demo recovery: ${state.config.demo_delay_seconds}s illustrative presentation delay · Known test factors, no quantum execution. TLS decryption and verification are real.`
+      ? `Demo recovery: ${state.config.demo_delay_seconds}s illustrative presentation delay · Known test recovery material, no quantum execution. TLS decryption and verification are real.`
       : "Recovery completion is driven by the configured backend’s actual job status.";
 }
 const stages = {
@@ -302,6 +302,9 @@ const stages = {
   matching_test_modulus: "Matching the public test modulus",
   illustrative_demo_delay: "Demonstration recovery in progress",
   verifying_factors: "Verifying the recovered factors",
+  matching_test_problem: "Matching the public test problem",
+  verifying_secret: "Verifying the recovered discrete logarithm",
+  verifying_discrete_log: "Verifying the recovered discrete logarithm",
   authenticating_tls: "Deriving keys and authenticating TLS",
   parsing_http: "Reconstructing captured HTTP",
   building_circuit: "Building order-finding circuit",
@@ -322,7 +325,7 @@ function renderJob(job) {
     job.state === "succeeded" ? "✓" : job.state === "failed" ? "!" : "";
   $("#job-source").textContent =
     job.method === "fixture_lookup"
-      ? "Known test factors · no quantum execution"
+      ? `${job.recovery_problem === "rsa_factor" ? "Known test factors" : "Known test discrete logarithm"} · no quantum execution`
       : job.method === "quantum_order_finding"
         ? `Quantum order finding · ${job.execution}`
         : state.config.mode === "demo"
@@ -330,7 +333,7 @@ function renderJob(job) {
           : job.requested_backend;
   $("#checks").replaceChildren(
     ...[
-      ["Factor pair", job.factor_pair_verified],
+      [job.recovery_problem === "rsa_factor" ? "Factor pair" : "Discrete logarithm", job.recovery_verified || job.factor_pair_verified],
       ["Client Finished", job.client_finished_verified],
       ["Server Finished", job.server_finished_verified],
       [
@@ -625,7 +628,7 @@ async function init() {
       node(
         "span",
         state.config.mode === "demo"
-          ? "Known test factors replace secret recovery. TCP, TLS decryption, and authentication are real."
+          ? "Known test keys replace secret recovery. TCP, TLS decryption, and authentication are real."
           : state.config.mode === "disabled"
             ? "Launch with --demo to explore the full workflow using the bundled test key."
             : `${state.config.backend} · actual job status · no demonstration fallback`,

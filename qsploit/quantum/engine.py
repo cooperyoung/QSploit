@@ -11,9 +11,13 @@ import math
 from pathlib import Path
 import time
 
-from qsploit.models import ExecutionOptions, Progress, QSploitError, Recovery, Report, RSAFactors, RSAProblem
+from qsploit.models import (ExecutionOptions, Progress, QSploitError, Recovery, Report,
+                            RSAFactors, RSAProblem, FFDLogProblem, FFDLogSecret,
+                            PublicProblem, RecoveredSecret)
+from qsploit.groups import validate_ffdhe2048
 
 FACTOR_FILE = Path(__file__).resolve().parent.parent / "demo" / "factors.json"
+DLOG_FILE = Path(__file__).resolve().parent.parent / "demo" / "dlog.json"
 
 
 @dataclass(frozen=True)
@@ -23,11 +27,14 @@ class DemoTiming:
     assumptions: str = "Configured presentation delay; not a quantum runtime or resource estimate."
 
 
-def validate_problem(problem: RSAProblem) -> None:
-    if not isinstance(problem, RSAProblem) or problem.kind != "rsa_factor":
-        raise QSploitError("UNSUPPORTED_PROBLEM", "Only RSA factorization is implemented.")
-    if type(problem.n) is not int or problem.n <= 1 or problem.n.bit_length() > 16384:
-        raise QSploitError("INVALID_MODULUS", "RSA modulus must be an integer greater than one, at most 16384 bits.")
+def validate_problem(problem: PublicProblem) -> None:
+    if isinstance(problem, RSAProblem) and problem.kind == "rsa_factor":
+        if type(problem.n) is not int or problem.n <= 1 or problem.n.bit_length() > 16384:
+            raise QSploitError("INVALID_MODULUS", "RSA modulus must be an integer greater than one, at most 16384 bits.")
+    elif isinstance(problem, FFDLogProblem) and problem.kind == "ff_dlog":
+        validate_ffdhe2048(problem.p, problem.g, problem.order, problem.y)
+    else:
+        raise QSploitError("UNSUPPORTED_PROBLEM", "The mathematical problem type is not supported.")
 
 
 def validate_options(options: ExecutionOptions) -> None:
@@ -43,7 +50,7 @@ def validate_options(options: ExecutionOptions) -> None:
         raise QSploitError("INVALID_OPTIONS", "demo_delay_seconds must be finite and between zero and 3600.")
 
 
-def timing_for(problem: RSAProblem, options: ExecutionOptions) -> DemoTiming:
+def timing_for(problem: PublicProblem, options: ExecutionOptions) -> DemoTiming:
     """Separate timing seam: future justified resource models can consume problem.
 
     No credible cryptographic-scale resource model is supplied, so qubit capacity
@@ -64,6 +71,8 @@ def verify_factor_pair(n: int, factors: RSAFactors) -> None:
 
 def known_factors(problem: RSAProblem) -> RSAFactors:
     validate_problem(problem)
+    if not isinstance(problem, RSAProblem):
+        raise QSploitError("UNSUPPORTED_PROBLEM", "This problem does not request an RSA factor pair.")
     try:
         entries = json.loads(FACTOR_FILE.read_text(encoding="utf-8"))
         item = entries.get(format(problem.n, "x"))
@@ -87,18 +96,66 @@ def has_known_factors(problem: RSAProblem) -> bool:
         return False
 
 
-def recover(problem: RSAProblem, options: ExecutionOptions, report: Report) -> Recovery:
+def verify_secret(problem: PublicProblem, secret: RecoveredSecret) -> None:
+    """Verify the mathematical answer against the complete public problem."""
+    validate_problem(problem)
+    if isinstance(problem, RSAProblem):
+        verify_factor_pair(problem.n, secret)
+    elif isinstance(problem, FFDLogProblem):
+        if (not isinstance(secret, FFDLogSecret) or type(secret.x) is not int
+                or not 1 <= secret.x < problem.order
+                or pow(problem.g, secret.x, problem.p) != problem.y):
+            raise QSploitError("INVALID_DLOG_RESULT", "The recovered exponent does not match the public finite-field problem.")
+
+
+def dlog_registry_key(problem: FFDLogProblem) -> str:
+    validate_problem(problem)
+    if not isinstance(problem, FFDLogProblem):
+        raise QSploitError("UNSUPPORTED_PROBLEM", "This problem does not request a finite-field discrete logarithm.")
+    return ":".join(format(value, "x") for value in (problem.p, problem.g, problem.y, problem.order))
+
+
+def known_secret(problem: PublicProblem) -> RecoveredSecret:
+    validate_problem(problem)
+    if isinstance(problem, RSAProblem):
+        return known_factors(problem)
+    key = dlog_registry_key(problem)
+    try:
+        entries = json.loads(DLOG_FILE.read_text(encoding="utf-8"))
+        item = entries.get(key)
+        if item is None:
+            raise QSploitError("FIXTURE_NOT_FOUND", "No known test exponent matches this complete public finite-field problem.")
+        secret = FFDLogSecret(int(item["x"], 16))
+    except QSploitError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        raise QSploitError("FIXTURE_INVALID", "The bundled demonstration exponent fixture is unavailable or malformed.") from None
+    verify_secret(problem, secret)
+    return secret
+
+
+def has_known_recovery(problem: PublicProblem) -> bool:
+    try:
+        known_secret(problem)
+        return True
+    except QSploitError:
+        return False
+
+
+def recover(problem: PublicProblem, options: ExecutionOptions, report: Report) -> Recovery:
     validate_problem(problem)
     validate_options(options)
     if options.backend == "fixture":
-        report(Progress("matching_test_modulus"))
-        factors = known_factors(problem)
+        report(Progress("matching_test_modulus" if isinstance(problem, RSAProblem) else "matching_test_public_problem"))
+        secret = known_secret(problem)
         timing = timing_for(problem, options)
         report(Progress("illustrative_demo_delay"))
         time.sleep(timing.seconds)
-        report(Progress("verifying_factors"))
-        verify_factor_pair(problem.n, factors)
-        return Recovery(factors, "fixture_lookup", "none", None, ())
+        report(Progress("verifying_factors" if isinstance(problem, RSAProblem) else "verifying_discrete_log"))
+        verify_secret(problem, secret)
+        return Recovery(secret, "fixture_lookup", "none", None, ())
+    if isinstance(problem, FFDLogProblem):
+        raise QSploitError("UNSUPPORTED_PROBLEM", "A quantum finite-field discrete-logarithm solver is not implemented. No fixture fallback was used.")
     # Import lazily: the complete classical/demo application needs no Qiskit.
     from .backends import run_aer, run_ionq
     from .shor import factor_shor

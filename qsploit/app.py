@@ -18,7 +18,7 @@ from .models import (ApplicationStreams, CaptureView, Capability, ExecutionOptio
 from .http1 import Exchange, parse_http, text_body
 from .jobs import run_recovery, verify_recovery
 from .preview import PREVIEW_CSP, preview_document
-from .quantum.engine import has_known_factors
+from .quantum.engine import has_known_recovery
 from .pcap import read_connections
 from .tls import parse_tls, problem_for, cipher_suite_name, group_name
 from .tls12 import decrypt_tls12
@@ -152,20 +152,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def session_view(s):
         try:
-            problem_for(s)
+            problem = problem_for(s)
             supported = True
         except QSploitError:
             supported = False
         modes = []
-        if supported and settings.backend == "fixture" and has_known_factors(RSAProblem(s.rsa.n)):
+        if supported and settings.backend == "fixture" and has_known_recovery(problem):
             modes = ["fixture"]
-        elif supported and settings.backend != "disabled" and settings.backend != "fixture" and 4*s.rsa.n.bit_length()+2 <= 22:
+        elif supported and settings.backend != "disabled" and settings.backend != "fixture" and isinstance(problem, RSAProblem) and 4*problem.n.bit_length()+2 <= 22:
             modes = [settings.backend]
         vuln = "shor_insufficient" if s.kex in {"hybrid_pq", "pq", "psk", "psk_dhe", "psk_ecdhe"} else "shor_applicable" if s.kex in {"rsa_transport", "dhe", "ecdhe"} else "unknown"
         incomplete = any("GAP" in b or "INCOMPLETE" in b or "TRUNCATED" in b for b in s.blockers)
         ambiguous = any("CONFLICT" in b or "AMBIGUOUS" in b for b in s.blockers)
         observed = state.endpoints.get(s.id, (None, None))
-        return SessionView(id=s.id, client=endpoint(s.client), server=endpoint(s.server), protocol=s.protocol, sni=s.sni, tls_version={0x301:"1.0", 0x302:"1.1", 0x303:"1.2", 0x304:"1.3"}.get(s.tls_version), cipher_suite_id=s.cipher_suite, cipher_suite_name=cipher_suite_name(s.cipher_suite), key_exchange=s.kex, authentication=s.authentication, alpn=s.alpn, selected_group_id=s.selected_group, selected_group_name=group_name(s.selected_group), ems=s.ems, psk_selected=s.psk_selected, resumed=s.resumed, rsa=PublicRSA(n_hex=format(s.rsa.n,"x"),e_hex=format(s.rsa.e,"x"),bits=s.rsa.n.bit_length()) if s.rsa else None, vulnerability=vuln, implementation="supported" if supported else "unsupported", capture_state="ambiguous" if ambiguous else "incomplete" if incomplete else "unsupported" if s.blockers else "usable", recovery_modes=modes, decrypt_state=state.decrypt_states.get(s.id,"not_started"), blockers=[issue(b) for b in s.blockers], warnings=[issue(w) for w in s.warnings], endpoint_a=observed[0], endpoint_b=observed[1])
+        return SessionView(id=s.id, client=endpoint(s.client), server=endpoint(s.server), protocol=s.protocol, sni=s.sni, tls_version={0x301:"1.0", 0x302:"1.1", 0x303:"1.2", 0x304:"1.3"}.get(s.tls_version), cipher_suite_id=s.cipher_suite, cipher_suite_name=cipher_suite_name(s.cipher_suite), key_exchange=s.kex, authentication=s.authentication, alpn=s.alpn, selected_group_id=s.selected_group, selected_group_name=group_name(s.selected_group), ems=s.ems, psk_selected=s.psk_selected, resumed=s.resumed, rsa=PublicRSA(n_hex=format(s.rsa.n,"x"),e_hex=format(s.rsa.e,"x"),bits=s.rsa.n.bit_length()) if s.rsa else None, vulnerability=vuln, implementation="supported" if supported else "unsupported", capture_state="ambiguous" if ambiguous else "incomplete" if incomplete else "unsupported" if s.blockers else "usable", recovery_modes=modes, decrypt_state=state.decrypt_states.get(s.id,"not_started"), blockers=[issue(b) for b in s.blockers], warnings=[issue(w) for w in s.warnings], endpoint_a=observed[0], endpoint_b=observed[1], recovery_problem=problem.kind if supported else None)
 
     def capture_view():
         if not state.capture_id:
@@ -244,7 +244,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             result = await run_recovery(problem, options, report)
             verify_recovery(problem, result, options)
-            job.factor_pair_verified = True
+            job.recovery_problem = problem.kind
+            job.recovery_verified = True
+            job.factor_pair_verified = isinstance(problem, RSAProblem)
             job.method, job.execution, job.target = result.method, result.execution, result.target
             if result.measurements:
                 m = result.measurements[-1]
@@ -252,7 +254,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 job.distribution_kind, job.actual_shots = m.kind, m.actual_shots
             if selected:
                 job.stage = "authenticating_tls"
-                streams = await asyncio.to_thread(decrypt_tls12, selected, result.factors)
+                streams = await asyncio.to_thread(decrypt_tls12, selected, result.secret)
                 job.client_finished_verified, job.server_finished_verified, job.authenticated_records = streams.client_finished_verified, streams.server_finished_verified, streams.authenticated_records
                 job.warnings.extend(issue(w) for w in streams.warnings)
                 job.stage = "parsing_http"

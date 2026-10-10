@@ -13,7 +13,7 @@ test oracle's master secret or expected plaintext.
 |---|---|---|---|
 | TLS 1.2 | Static RSA | AES-128-GCM / SHA-256 | **Verified**: EMS, non-EMS, ticket issuance; RSA-2048 factors |
 | TLS 1.2 | Static RSA | AES-256-GCM / SHA-384 | **Verified**: EMS and non-EMS; RSA-2048 factors |
-| TLS 1.2 | DHE | AES-GCM | Detection only; next extension |
+| TLS 1.2 | DHE_RSA, ffdhe2048 | AES-128/256-GCM | **Verified**: EMS and non-EMS; finite-field exponent |
 | TLS 1.2 | ECDHE P-256, X25519 | AES-GCM | Detection only; planned after DHE |
 | TLS 1.3 | ECDHE P-256, X25519 | AES-GCM | Detection only; planned after TLS 1.2 ECDHE |
 | TLS 1.2 / 1.3 | Applicable DHE / ECDHE | ChaCha20-Poly1305 | Detection only; planned after TLS 1.3 AES-GCM |
@@ -42,3 +42,25 @@ The upload, spawned recovery, raw-stream download, HTTP exchange and preview API
 flow passes for both captures. Negative checks cover wrong factors, wrong hash
 schedule, missing packets, all protected-record corruptions, and valid-tag but
 incorrect Finished data. Existing AES-128 captures remain byte-for-byte unchanged.
+
+## Extension 2: DHE / AES-GCM
+
+Four independent OpenSSL ↔ tlslite-ng captures cover ffdhe2048 DHE_RSA,
+AES-128 and AES-256, with and without EMS. The development endpoint passively
+observes its original random exponent; the demo registry stores only that
+exponent keyed by the entire public `(p,g,y,order)` problem. A fifth capture has
+no retained test exponent and fails recovery honestly. Ordinary runtime needs
+no tlslite-ng installation.
+
+The recovery component verifies the exponent against the public share. The local
+TLS component validates both subgroup elements, verifies signed ServerKeyExchange
+parameters, computes the shared secret, strips leading zero octets as TLS 1.2
+requires, then derives and authenticates traffic. All four upload-to-inspector
+API flows pass and match independent OpenSSL master secrets and endpoint bytes;
+each checks both Finished messages and 19 protected records. Isolation proof
+passes while oracle and endpoint-key file access is denied.
+
+Only ffdhe2048 and RSA signature schemes SHA-256/384/512 (PKCS#1 or PSS) are
+implemented here. Other finite-field groups and SHA-1 signatures remain explicit
+unsupported cases. The RSA order-finding solver is unchanged. No quantum
+finite-field discrete-log solver or cloud DLP execution is claimed.

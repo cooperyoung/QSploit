@@ -75,6 +75,61 @@
       "cipher_suite_id": 157,
       "packet_count": 44,
       "linktype": 0
+    },
+    {
+      "file": "tls12-dhe-aes128-ems.pcap",
+      "sha256": "30e1c76177c676f33d880c0ca8df46340617ab1876b788ca51fec2680e360df9",
+      "size": 58439,
+      "sessions": 1,
+      "mode": "dhe_ems",
+      "cipher_suite_id": 158,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-dhe-aes128-noems.pcap",
+      "sha256": "403e4e138c39ad09746d679b3e6469dd4d813731a74bdc27bcfc73cef3525297",
+      "size": 58431,
+      "sessions": 1,
+      "mode": "dhe_noems",
+      "cipher_suite_id": 158,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-dhe-aes256-ems.pcap",
+      "sha256": "4de35c68a5208fd670b004e01feffa6ba83cb05d8ce87ea3f498a3f1a30da392",
+      "size": 58439,
+      "sessions": 1,
+      "mode": "dhe_ems",
+      "cipher_suite_id": 159,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-dhe-aes256-noems.pcap",
+      "sha256": "b98bf952f2ba5a671ad657f50b98c7aedab77d498cce5a7807205b499d198fc9",
+      "size": 58431,
+      "sessions": 1,
+      "mode": "dhe_noems",
+      "cipher_suite_id": 159,
+      "recovery_secret_bundled": true,
+      "packet_count": 50,
+      "linktype": 0
+    },
+    {
+      "file": "tls12-dhe-unknown.pcap",
+      "sha256": "189b50619052388753b07988e681f323597380a6c514197cac3784a8601f2e9b",
+      "size": 58439,
+      "sessions": 1,
+      "mode": "dhe_ems",
+      "cipher_suite_id": 158,
+      "recovery_secret_bundled": false,
+      "packet_count": 50,
+      "linktype": 0
     }
   ],
   "temporary_private_key_and_keylogs_deleted": true,

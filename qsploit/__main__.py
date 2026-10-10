@@ -5,7 +5,7 @@ import os
 def main():
     parser = argparse.ArgumentParser(description="QSploit — local capture inspector")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--demo", action="store_true", help="Explicit known-test-factor demonstration mode")
+    mode.add_argument("--demo", action="store_true", help="Explicit known-test-key demonstration mode")
     mode.add_argument("--backend", choices=["aer", "ionq_simulator", "ionq_qpu"])
     parser.add_argument("--demo-delay-seconds", type=float, default=float(os.getenv("QSPLOIT_DEMO_DELAY_SECONDS", "3")))
     parser.add_argument("--port", type=int, default=8000)

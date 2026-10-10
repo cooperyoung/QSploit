@@ -1,8 +1,13 @@
 #!/bin/sh
 set -eu
-cd "$(dirname "$0")"
-if [ ! -x .venv/bin/python ]; then
-  echo 'Install first: python3.12 -m venv .venv && .venv/bin/pip install -e .'
-  exit 1
+cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+qsploit_python="${QSPLOIT_PYTHON:-}"
+if [ -z "$qsploit_python" ] && [ -f .runtime-python ]; then
+    IFS= read -r qsploit_python < .runtime-python
 fi
-exec .venv/bin/python -m qsploit --demo "$@"
+if [ -z "$qsploit_python" ] || [ ! -x "$qsploit_python" ]; then
+    qsploit_python="$PWD/.venv/bin/python"
+fi
+# Keep Python bytecode out of cloud-synced source directories.
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${TMPDIR:-/tmp}/qsploit-pycache}"
+exec "$qsploit_python" -m qsploit --demo "$@"

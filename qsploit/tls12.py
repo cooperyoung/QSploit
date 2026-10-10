@@ -1,4 +1,4 @@
-"""The supported TLS 1.2 RSA / AES-GCM schedules and verification.
+"""The supported TLS 1.2 RSA/DHE AES-GCM schedules and verification.
 
 RFC 5246 sections 5, 6.3, 7.4.9; RFC 5288 section 3; RFC 7627 section 4.
 Application bytes are returned only after both Finished messages and every
@@ -14,19 +14,22 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .models import ApplicationStreams, ParsedTLS, QSploitError, RSAFactors
+from .models import ApplicationStreams, FFDLogSecret, ParsedTLS, QSploitError, RecoveredSecret, RSAFactors
 from .tls import MAX_HANDSHAKE_BYTES, problem_for
 
 
 # RFC 5288: SHA-384 changes the PRF/transcript hash, not GCM tag/nonce sizes.
-CIPHER_PARAMETERS = {0x009c: ("sha256", 16), 0x009d: ("sha384", 32)}
+CIPHER_PARAMETERS = {
+    0x009c: ("sha256", 16), 0x009d: ("sha384", 32),
+    0x009e: ("sha256", 16), 0x009f: ("sha384", 32),
+}
 
 
 def cipher_parameters(cipher_suite: int) -> tuple[str, int]:
     try:
         return CIPHER_PARAMETERS[cipher_suite]
     except KeyError:
-        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS cipher suite has no implemented RSA/GCM schedule.") from None
+        raise QSploitError("UNSUPPORTED_CIPHER", "This TLS cipher suite has no implemented AES-GCM schedule.") from None
 
 
 def prf(secret: bytes, label: bytes | str, seed: bytes, length: int, hash_name: str = "sha256") -> bytes:
@@ -49,12 +52,13 @@ def _transcript(session: ParsedTLS) -> tuple[bytes, tuple[bytes, ...]]:
     client = [h.wire for h in session.clear_handshakes if h.direction == "c2s"]
     server = [h.wire for h in session.clear_handshakes if h.direction == "s2c"]
     if [m[0] for m in client] != [1, 16]:
-        raise QSploitError("INCOMPLETE_HANDSHAKE", "A full ClientHello and RSA ClientKeyExchange flight is required.")
+        raise QSploitError("INCOMPLETE_HANDSHAKE", "A full ClientHello and ClientKeyExchange flight is required.")
     kinds = [m[0] for m in server]
     if kinds.count(14) != 1:
         raise QSploitError("INCOMPLETE_HANDSHAKE", "Exactly one ServerHelloDone is required.")
     done = kinds.index(14)
-    if kinds[:done + 1] not in ([2, 11, 14], [2, 11, 22, 14]):
+    allowed = ([2, 11, 14], [2, 11, 22, 14]) if session.kex == "rsa_transport" else ([2, 11, 12, 14], [2, 11, 22, 12, 14])
+    if kinds[:done + 1] not in allowed:
         raise QSploitError("INCOMPLETE_HANDSHAKE", "The server handshake flight has unsupported or inconsistent ordering.")
     if server[done][4:]:
         raise QSploitError("INVALID_TLS", "ServerHelloDone must have an empty body.")
@@ -69,8 +73,21 @@ def _transcript(session: ParsedTLS) -> tuple[bytes, tuple[bytes, ...]]:
     return through_cke, tickets
 
 
-def recover_premaster(session: ParsedTLS, factors: RSAFactors) -> bytes:
+def recover_premaster(session: ParsedTLS, factors: RecoveredSecret) -> bytes:
     problem_for(session)
+    if session.kex == "dhe":
+        key = session.dhe
+        assert key is not None
+        if not isinstance(factors, FFDLogSecret):
+            raise QSploitError("INVALID_RECOVERY_RESULT", "DHE recovery requires a verified discrete logarithm result.")
+        x = factors.x
+        if type(x) is not int or not 1 <= x < key.order or pow(key.g, x, key.p) != key.server_public:
+            raise QSploitError("INVALID_DLOG_RESULT", "The recovered exponent does not reproduce the captured server public share.")
+        shared = pow(key.client_public, x, key.p)
+        # RFC 5246 section 8.1.2: leading zero bytes of Z are stripped.
+        return shared.to_bytes((shared.bit_length() + 7) // 8, "big")
+    if not isinstance(factors, RSAFactors):
+        raise QSploitError("INVALID_RECOVERY_RESULT", "RSA transport recovery requires a verified factor pair.")
     key = session.rsa
     assert key is not None
     p, q = factors.p, factors.q
@@ -97,7 +114,7 @@ def recover_premaster(session: ParsedTLS, factors: RSAFactors) -> bytes:
     return premaster
 
 
-def derive_master_secret(session: ParsedTLS, factors: RSAFactors) -> bytes:
+def derive_master_secret(session: ParsedTLS, factors: RecoveredSecret) -> bytes:
     """Internal schedule helper; secret result is never projected into the API."""
     premaster = recover_premaster(session, factors)
     transcript, _ = _transcript(session)
@@ -184,7 +201,7 @@ def _decrypt_direction(session: ParsedTLS, direction: str, key: bytes, salt: byt
     return bytes(application), finished, sequence, close_notify, warnings
 
 
-def decrypt_tls12(session: ParsedTLS, factors: RSAFactors) -> ApplicationStreams:
+def decrypt_tls12(session: ParsedTLS, factors: RecoveredSecret) -> ApplicationStreams:
     problem_for(session)
     transcript, tickets = _transcript(session)
     master = derive_master_secret(session, factors)

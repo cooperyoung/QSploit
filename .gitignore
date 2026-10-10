@@ -13,3 +13,6 @@ dist/
 *.pem
 *.key
 *.keylog
+
+# Optional local interpreter override for cloud-synced workspaces.
+.runtime-python

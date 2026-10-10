@@ -54,6 +54,14 @@ class RSAKeyTransport:
     encrypted_premaster: bytes = field(repr=False)
 
 @dataclass(frozen=True)
+class FFDHEKeyExchange:
+    p: int
+    g: int
+    server_public: int
+    client_public: int
+    order: int
+
+@dataclass(frozen=True)
 class ParsedTLS:
     id: str
     protocol: Literal["tls", "tcp", "unknown"]
@@ -78,6 +86,7 @@ class ParsedTLS:
     clear_handshakes: tuple[Handshake, ...] = field(repr=False)
     blockers: tuple[str, ...]
     warnings: tuple[str, ...]
+    dhe: FFDHEKeyExchange | None = None
 
 @dataclass(frozen=True)
 class RSAProblem:
@@ -88,6 +97,21 @@ class RSAProblem:
 class RSAFactors:
     p: int = field(repr=False)
     q: int = field(repr=False)
+
+@dataclass(frozen=True)
+class FFDLogProblem:
+    p: int
+    g: int
+    y: int
+    order: int
+    kind: Literal["ff_dlog"] = "ff_dlog"
+
+@dataclass(frozen=True)
+class FFDLogSecret:
+    x: int = field(repr=False)
+
+PublicProblem = RSAProblem | FFDLogProblem
+RecoveredSecret = RSAFactors | FFDLogSecret
 
 @dataclass(frozen=True)
 class ExecutionOptions:
@@ -126,11 +150,18 @@ class CircuitRunner(Protocol):
 
 @dataclass(frozen=True)
 class Recovery:
-    factors: RSAFactors = field(repr=False)
+    secret: RecoveredSecret = field(repr=False)
     method: Literal["fixture_lookup", "quantum_order_finding", "classical_precheck"]
     execution: Execution
     target: str | None
     measurements: tuple[Measurement, ...] = field(repr=False)
+
+    @property
+    def factors(self) -> RSAFactors:
+        """Compatibility for the separate RSA quantum-validation entry point."""
+        if not isinstance(self.secret, RSAFactors):
+            raise TypeError("This recovery result contains a discrete logarithm, not RSA factors")
+        return self.secret
 
 @dataclass(frozen=True)
 class ApplicationStreams:
@@ -186,6 +217,7 @@ class SessionView(WireModel):
     warnings: list[Issue]
     endpoint_a: str | None = None  # observed sockets when TLS roles are unknown
     endpoint_b: str | None = None
+    recovery_problem: str | None = None
 
 class CaptureView(WireModel):
     id: str
@@ -224,6 +256,8 @@ class JobView(WireModel):
     authenticated_records: int
     error: Issue | None
     warnings: list[Issue]
+    recovery_problem: str | None = None
+    recovery_verified: bool = False
 
 class ExchangeSummary(WireModel):
     index: int

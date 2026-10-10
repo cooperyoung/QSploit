@@ -43,8 +43,8 @@ def test_independent_endpoint_oracles_are_consistent(name):
     assert expected['server_shutdown_complete']
 
 
-def test_runtime_assets_have_only_pcaps_and_factor_pairs():
-    expected_names = {'factors.json', 'qsploit-demo.pcap', 'tls12-rsa-ems.pcap', 'mixed-discovery.pcap', 'tls12-rsa-aes256.pcap', 'tls12-rsa-aes256-noems.pcap'}
+def test_runtime_assets_have_only_pcaps_and_explicit_recovery_fixtures():
+    expected_names = {'factors.json', 'qsploit-demo.pcap', 'tls12-rsa-ems.pcap', 'mixed-discovery.pcap', 'tls12-rsa-aes256.pcap', 'tls12-rsa-aes256-noems.pcap', 'dlog.json', 'tls12-dhe-aes128-ems.pcap', 'tls12-dhe-aes128-noems.pcap', 'tls12-dhe-aes256-ems.pcap', 'tls12-dhe-aes256-noems.pcap'}
     assert {p.name for p in DEMO.iterdir() if p.is_file()} == expected_names
     factors = json.loads((DEMO / 'factors.json').read_text())
     assert len(factors) == 2

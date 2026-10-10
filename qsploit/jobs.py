@@ -5,10 +5,10 @@ import multiprocessing as mp
 import signal
 import time
 
-from .models import ExecutionOptions, Progress, QSploitError, Recovery, RSAProblem
+from .models import ExecutionOptions, Progress, QSploitError, Recovery, RSAProblem, PublicProblem
 
 
-def _worker(pipe, problem: RSAProblem, options: ExecutionOptions):
+def _worker(pipe, problem: PublicProblem, options: ExecutionOptions):
     # Child never receives or imports the application's capture store.
     from .quantum.engine import recover
     def interrupted(signum, frame):
@@ -25,7 +25,7 @@ def _worker(pipe, problem: RSAProblem, options: ExecutionOptions):
         pipe.close()
 
 
-async def run_recovery(problem: RSAProblem, options: ExecutionOptions, report) -> Recovery:
+async def run_recovery(problem: PublicProblem, options: ExecutionOptions, report) -> Recovery:
     context = mp.get_context("spawn")
     parent, child = context.Pipe(duplex=False)
     process = context.Process(target=_worker, args=(child, problem, options), daemon=True)
@@ -65,15 +65,15 @@ async def run_recovery(problem: RSAProblem, options: ExecutionOptions, report) -
         parent.close()
 
 
-def verify_recovery(problem: RSAProblem, result: Recovery, options: ExecutionOptions):
-    from .quantum.engine import verify_factor_pair
-    verify_factor_pair(problem.n, result.factors)
+def verify_recovery(problem: PublicProblem, result: Recovery, options: ExecutionOptions):
+    from .quantum.engine import verify_secret
+    verify_secret(problem, result.secret)
     if result.method == "fixture_lookup":
-        valid = options.backend == "fixture" and result.execution == "none" and not result.measurements
+        valid = options.backend == "fixture" and result.execution == "none" and result.target is None and not result.measurements
     elif result.method == "classical_precheck":
-        valid = options.backend != "fixture" and result.execution == "none" and not result.measurements
+        valid = isinstance(problem, RSAProblem) and options.backend != "fixture" and result.execution == "none" and result.target is None and not result.measurements
     elif result.method == "quantum_order_finding":
-        valid = result.execution == options.backend and bool(result.measurements) and all(m.execution == result.execution for m in result.measurements)
+        valid = isinstance(problem, RSAProblem) and result.execution == options.backend and bool(result.measurements) and all(m.execution == result.execution for m in result.measurements)
         if valid:
             from .quantum.backends import validate_measurement
             for measurement in result.measurements:
